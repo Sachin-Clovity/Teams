@@ -1,0 +1,99 @@
+modules:
+  jira:globalPage:
+    - key: connector-app-global-page
+      resource: main
+      resolver:
+        function: resolver
+      title: Teams Connector
+
+  trigger:
+    - key: jira-issue-trigger
+      function: jira-sync
+      events:
+        - jira:issueCreated
+        - jira:issueUpdated
+        - jira:issueDeleted
+
+  function:
+    - key: resolver
+      handler: index.handler
+      # providers:      # auth commented — using trigger approach
+      #   auth:
+      #     - microsoft
+
+    - key: jira-sync
+      handler: index.jiraSync
+
+resources:
+  - key: main
+    path: static/hello-world/build
+
+# providers:      # auth commented — using trigger approach
+#   auth:
+#     - key: microsoft
+#       name: Microsoft Teams
+#       type: oauth2
+#       clientId: 8529f84e-4daa-48df-bd92-0f62fd47651e
+#       scopes:
+#         - openid
+#         - profile
+#         - email
+#         - offline_access
+#         - ChannelMessage.Send
+#         - Channel.ReadBasic.All
+#         - Team.ReadBasic.All
+#       remotes:
+#         - ms-graph
+#       bearerMethod: authorization-header
+#       actions:
+#         authorization:
+#           remote: ms-login
+#           path: /common/oauth2/v2.0/authorize
+#           queryParameters:
+#             prompt: consent
+#         exchange:
+#           remote: ms-login
+#           path: /common/oauth2/v2.0/token
+#         refreshToken:
+#           remote: ms-login
+#           path: /common/oauth2/v2.0/token
+#         revokeToken:
+#           remote: ms-login
+#           path: /common/oauth2/v2.0/logout
+#         retrieveProfile:
+#           remote: ms-graph
+#           path: /v1.0/me
+#           resolvers:
+#             id: id
+#             displayName: userPrincipalName
+#             avatarUrl: picture
+
+remotes:
+  - key: ms-graph
+    baseUrl: https://graph.microsoft.com
+  - key: ms-login
+    baseUrl: https://login.microsoftonline.com
+
+permissions:
+  external:
+    fetch:
+      client:
+        - address: https://graph.microsoft.com
+        - address: https://login.microsoftonline.com
+      backend:
+        - address: https://graph.microsoft.com
+        - address: https://login.microsoftonline.com
+        - address: https://outlook.office.com
+        - address: https://*.webhook.office.com
+
+  scopes:
+    - storage:app
+    - read:jira-work
+    - write:jira-work
+
+app:
+  id: ari:cloud:ecosystem::app/186dd9e7-7cba-4f86-b5df-202440d0aab8
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64

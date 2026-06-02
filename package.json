@@ -1,0 +1,11 @@
+{
+  "name": "jira-teams-connector",
+  "version": "1.0.0",
+  "description": "Jira to Microsoft Teams connector — Forge AGC certified",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@forge/api": "^4.0.0",
+    "@forge/resolver": "^1.8.0"
+  }
+}
