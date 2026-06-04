@@ -17,18 +17,31 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-      # providers:      # auth commented — using trigger approach
+      # providers:
       #   auth:
       #     - microsoft
 
     - key: jira-sync
       handler: index.jiraSync
 
+    - key: automation-webhook
+      handler: index.automationHandler
+
+    - key: teams-bot-handler
+      handler: index.teamsBotHandler
+
+  webtrigger:
+    - key: automation-teams-webhook
+      function: automation-webhook
+
+    - key: teams-bot-endpoint
+      function: teams-bot-handler
+
 resources:
   - key: main
     path: static/hello-world/build
 
-# providers:      # auth commented — using trigger approach
+# providers:
 #   auth:
 #     - key: microsoft
 #       name: Microsoft Teams
@@ -85,6 +98,8 @@ permissions:
         - address: https://login.microsoftonline.com
         - address: https://outlook.office.com
         - address: https://*.webhook.office.com
+        - address: https://*.trafficmanager.net
+        - address: https://*.powerplatform.com
 
   scopes:
     - storage:app
@@ -92,8 +107,7 @@ permissions:
     - write:jira-work
 
 app:
-  id: ari:cloud:ecosystem::app/186dd9e7-7cba-4f86-b5df-202440d0aab8
+  id: ari:cloud:ecosystem::app/37fbf02b-1217-4b50-97f9-3565740801bb
   runtime:
     name: nodejs24.x
-    memoryMB: 256
-    architecture: arm64
+  

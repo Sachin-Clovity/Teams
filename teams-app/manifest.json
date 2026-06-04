@@ -1,0 +1,87 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.0",
+  "id": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+  "developer": {
+    "name": "Clovity",
+    "websiteUrl": "https://clovity.com",
+    "privacyUrl": "https://clovity.com/privacy",
+    "termsOfUseUrl": "https://clovity.com/terms"
+  },
+  "name": {
+    "short": "Jira Connector",
+    "full": "Jira for Microsoft Teams"
+  },
+  "description": {
+    "short": "Jira link previews and notifications",
+    "full": "View Jira issue details inline when sharing links, receive Jira notifications, and manage issues directly from Microsoft Teams."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0052CC",
+  "bots": [
+    {
+      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "scopes": ["personal", "team", "groupchat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["team", "groupchat"],
+          "commands": [
+            { "title": "create", "description": "Create issue (auto type): create PROJECT summary" },
+            { "title": "bug", "description": "Create Bug: bug PROJECT summary" },
+            { "title": "task", "description": "Create Task: task PROJECT summary" },
+            { "title": "story", "description": "Create Story: story PROJECT summary" },
+            { "title": "epic", "description": "Create Epic: epic PROJECT summary" },
+            { "title": "search", "description": "Search issues: search keyword" },
+            { "title": "show", "description": "View issue details: show PROJ-123" },
+            { "title": "update", "description": "Update issue status: update PROJ-123 Done" }
+          ]
+        }
+      ]
+    }
+  ],
+  "composeExtensions": [
+    {
+      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "commands": [
+        {
+          "id": "searchJiraIssues",
+          "type": "query",
+          "title": "Search Jira Issues",
+          "description": "Search for Jira issues by keyword",
+          "initialRun": false,
+          "parameters": [
+            {
+              "name": "query",
+              "title": "Search",
+              "description": "Enter issue key or keyword",
+              "inputType": "text"
+            }
+          ]
+        }
+      ],
+      "messageHandlers": [
+        {
+          "type": "link",
+          "value": {
+            "domains": [
+              "*.atlassian.net",
+              "*.atlassian-us-gov-mod.net"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": [
+    "*.atlassian.net",
+    "*.atlassian-us-gov-mod.net",
+    "atlassian-dev.net"
+  ]
+}
