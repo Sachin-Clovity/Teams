@@ -1,0 +1,119 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.16",
+  "version": "1.0.2",
+  "id": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+  "packageName": "com.clovity.jira.connector",
+  "developer": {
+    "name": "Clovity",
+    "websiteUrl": "https://clovity.com",
+    "privacyUrl": "https://clovity.com",
+    "termsOfUseUrl": "https://clovity.com"
+  },
+  "name": {
+    "short": "Jira Connector",
+    "full": "Jira Teams Connector"
+  },
+  "description": {
+    "short": "Create, search and manage Jira issues from Teams",
+    "full": "Create issues, add comments, log time, search and update Jira issues directly from Microsoft Teams"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#0052CC",
+  "bots": [
+    {
+      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "scopes": ["personal", "team", "groupchat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["personal", "team", "groupchat"],
+          "commands": [
+            { "title": "create",   "description": "Create a Jira issue — e.g. create PROJ Summary" },
+            { "title": "search",   "description": "Search issues — e.g. search login bug" },
+            { "title": "show",     "description": "Show issue details — e.g. show PROJ-123" },
+            { "title": "update",   "description": "Update status — e.g. update PROJ-123 Done" },
+            { "title": "comment",  "description": "Add comment — e.g. comment PROJ-123 Fixed in v2" },
+            { "title": "log",      "description": "Log time — e.g. log PROJ-123 2h Fixed the bug" },
+            { "title": "projects", "description": "List all Jira projects" },
+            { "title": "assign",   "description": "Assign issue — e.g. assign PROJ-123 user@domain.com" }
+
+          ]
+        }
+      ]
+    }
+  ],
+  "composeExtensions": [
+    {
+      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "commands": [
+        {
+          "id": "createJiraIssue",
+          "type": "action",
+          "title": "Create issue in Jira",
+          "description": "Create a Jira issue from this Teams message",
+          "context": ["message"],
+          "fetchTask": true,
+          "parameters": [
+            { "name": "messageText", "title": "Message", "description": "Message content", "inputType": "text" }
+          ]
+        },
+        {
+          "id": "commentInJira",
+          "type": "action",
+          "title": "Comment in Jira",
+          "description": "Add this message as a comment on a Jira issue",
+          "context": ["message"],
+          "fetchTask": true,
+          "parameters": [
+            { "name": "messageText", "title": "Message", "description": "Message content", "inputType": "text" }
+          ]
+        },
+        {
+          "id": "logTimeInJira",
+          "type": "action",
+          "title": "Log time in Jira",
+          "description": "Log work time on a Jira issue",
+          "context": ["message"],
+          "fetchTask": true,
+          "parameters": [
+            { "name": "messageText", "title": "Message", "description": "Message content", "inputType": "text" }
+          ]
+        },
+        {
+          "id": "searchJiraIssues",
+          "type": "query",
+          "title": "Search Jira Issues",
+          "description": "Search for Jira issues and insert into message",
+          "initialRun": true,
+          "context": ["compose", "commandBox"],
+          "parameters": [
+            {
+              "name": "searchQuery",
+              "title": "Search",
+              "description": "Search by issue key, summary or keyword",
+              "inputType": "text"
+            }
+          ]
+        }
+      ],
+      "messageHandlers": [
+        {
+          "type": "link",
+          "value": {
+            "domains": ["*.atlassian.net"]
+          }
+        }
+      ]
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": [
+    "*.atlassian.net",
+    "*.atlassian-dev.net"
+  ]
+}

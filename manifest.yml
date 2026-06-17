@@ -6,6 +6,14 @@ modules:
         function: resolver
       title: Teams Connector
 
+  jira:issueContext:
+    - key: teams-issue-context
+      resource: main
+      resolver:
+        function: resolver
+      title: Microsoft Teams
+      label: Microsoft Teams
+
   trigger:
     - key: jira-issue-trigger
       function: jira-sync
@@ -17,9 +25,6 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-      # providers:
-      #   auth:
-      #     - microsoft
 
     - key: jira-sync
       handler: index.jiraSync
@@ -40,46 +45,6 @@ modules:
 resources:
   - key: main
     path: static/hello-world/build
-
-# providers:
-#   auth:
-#     - key: microsoft
-#       name: Microsoft Teams
-#       type: oauth2
-#       clientId: 8529f84e-4daa-48df-bd92-0f62fd47651e
-#       scopes:
-#         - openid
-#         - profile
-#         - email
-#         - offline_access
-#         - ChannelMessage.Send
-#         - Channel.ReadBasic.All
-#         - Team.ReadBasic.All
-#       remotes:
-#         - ms-graph
-#       bearerMethod: authorization-header
-#       actions:
-#         authorization:
-#           remote: ms-login
-#           path: /common/oauth2/v2.0/authorize
-#           queryParameters:
-#             prompt: consent
-#         exchange:
-#           remote: ms-login
-#           path: /common/oauth2/v2.0/token
-#         refreshToken:
-#           remote: ms-login
-#           path: /common/oauth2/v2.0/token
-#         revokeToken:
-#           remote: ms-login
-#           path: /common/oauth2/v2.0/logout
-#         retrieveProfile:
-#           remote: ms-graph
-#           path: /v1.0/me
-#           resolvers:
-#             id: id
-#             displayName: userPrincipalName
-#             avatarUrl: picture
 
 remotes:
   - key: ms-graph
@@ -105,9 +70,9 @@ permissions:
     - storage:app
     - read:jira-work
     - write:jira-work
+    - read:jira-user
 
 app:
-  id: ari:cloud:ecosystem::app/37fbf02b-1217-4b50-97f9-3565740801bb
+  id: ari:cloud:ecosystem::app/1e22dbd0-9cce-44ac-b3b7-03d8530fb34e
   runtime:
     name: nodejs24.x
-  
