@@ -4,7 +4,7 @@ modules:
       resource: main
       resolver:
         function: resolver
-      title: Teams Connector
+      title: Teams Connectorss
 
   jira:issueContext:
     - key: teams-issue-context
@@ -14,6 +14,20 @@ modules:
       title: Microsoft Teams
       label: Microsoft Teams
 
+  jira:projectSettingsPage:
+    - key: teams-project-settings
+      resource: main
+      resolver:
+        function: resolver
+      title: Teams Connector
+
+  jira:personalSettingsPage:
+    - key: teams-personal-settings
+      resource: main
+      resolver:
+        function: resolver
+      title: Teams Notifications
+
   trigger:
     - key: jira-issue-trigger
       function: jira-sync
@@ -22,12 +36,20 @@ modules:
         - jira:issueUpdated
         - jira:issueDeleted
 
+  scheduledTrigger:
+    - key: daily-digest-trigger
+      function: daily-digest
+      interval: day
+
   function:
     - key: resolver
       handler: index.handler
 
     - key: jira-sync
       handler: index.jiraSync
+
+    - key: daily-digest
+      handler: index.dailyDigest
 
     - key: automation-webhook
       handler: index.automationHandler

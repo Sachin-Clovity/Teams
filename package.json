@@ -4,8 +4,18 @@
   "description": "Jira to Microsoft Teams connector — Forge AGC certified",
   "license": "MIT",
   "private": true,
+  "scripts": {
+    "build": "npm --prefix static/hello-world run build",
+    "predeploy": "npm --prefix static/hello-world install && npm run build",
+    "deploy": "forge deploy --environment development --non-interactive",
+    "install-app": "forge install",
+    "tunnel": "forge tunnel",
+    "lint": "forge lint",
+    "logs": "forge logs"
+  },
   "dependencies": {
     "@forge/api": "^4.0.0",
+    "@forge/kvs": "^1.0.0",
     "@forge/resolver": "^1.8.0"
   }
 }
