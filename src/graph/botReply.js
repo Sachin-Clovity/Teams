@@ -31,6 +31,19 @@ export async function postToTeams(activity, msgContent) {
   });
   const resText = await res.text();
   console.log('[postToTeams] reply status:', res.status, '| body:', resText);
+  if (res.status === 403 && resText.includes('BotNotInConversationRoster')) {
+    console.log(
+      '[postToTeams] EXPECTED FAILURE — the bot is not a member of this conversation, so it cannot proactively post here.',
+      '| conversationType:', activity.conversation?.conversationType,
+      '| conversationId:', conversationId,
+      '| tenantId:', activity.conversation?.tenantId,
+      '| triggering user aadObjectId:', activity.from?.aadObjectId,
+      '| triggering user id:', activity.from?.id,
+      '— this happens when a message action is invoked on a message in a chat/channel the bot was never added to. The card post is skipped; the task-dialog text fallback (with the issue link) is what the user actually sees.'
+    );
+  } else if (res.status >= 400) {
+    console.log('[postToTeams] UNEXPECTED FAILURE — status', res.status, 'conversationType:', activity.conversation?.conversationType, '| conversationId:', conversationId);
+  }
 }
 
 // Builds an adaptive-card message and posts it via serviceUrl.

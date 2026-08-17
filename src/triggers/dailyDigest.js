@@ -20,7 +20,7 @@ export async function dailyDigest() {
       ? `project = ${projectKey} AND statusCategory != Done ORDER BY updated DESC`
       : `statusCategory != Done ORDER BY updated DESC`;
     try {
-      const res    = await api.asApp().requestJira(route`/rest/api/3/search?jql=${jql}&maxResults=5&fields=summary,status`);
+      const res    = await api.asApp().requestJira(route`/rest/api/3/search/jql?jql=${jql}&maxResults=5&fields=summary,status`);
       const data   = await res.json();
       const issues = data.issues || [];
       const total  = data.total ?? issues.length;

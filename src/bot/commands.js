@@ -2,21 +2,44 @@ import api, { route } from '@forge/api';
 import { sendBotReply } from '../graph/botReply.js';
 import { issueCard, helpText } from './cards.js';
 import { parseTimeToSeconds } from '../jira/utils.js';
+import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch, requireConnection } from '../jira/atlassianAuth.js';
+import { clearAtlassianAuth } from '../storage/kvsStore.js';
 
-// Text commands typed directly to the bot: create / bug / task / story / epic /
+// Text commands typed directly to the bot: connect / create / bug / task / story / epic /
 // search / projects / show / update / comment / log / assign / help.
 export async function handleBotMessage(body) {
   const text = (body.text || '').replace(/<at>[^<]*<\/at>/gi, '').trim();
-  console.log('[botCommand] message command:', text);
+  // from.id is scoped to the current conversation (personal chat vs channel vs group chat
+  // each get a different value for the same person) — aadObjectId is the stable identity
+  // that's the same everywhere, which is what lets `connect` (personal chat) and the
+  // message-action / card buttons (channel or group chat) find the same saved auth record.
+  const teamsUserId = body.from?.aadObjectId || body.from?.id;
+  console.log('[botCommand] message command:', text, '| from:', teamsUserId, '| body.from:', JSON.stringify(body.from));
+
+  // CONNECT: link this Teams user to their real Jira account
+  if (/^connect$/i.test(text)) {
+    console.log('[botCommand] connect — teamsUserId used for lookup/save:', teamsUserId);
+    const existing = await getValidAtlassianAuth(teamsUserId);
+    if (existing?.cloudId) return sendBotReply(body, [], `✅ Already connected to **${existing.siteName}**. Type \`disconnect\` to unlink.`);
+    const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
+    return sendBotReply(body, [], `[Connect Jira Account](${url})`);
+  }
+
+  // DISCONNECT: unlink this Teams user's Jira account
+  if (/^disconnect$/i.test(text)) {
+    await clearAtlassianAuth(teamsUserId);
+    return sendBotReply(body, [], `Disconnected. Type \`connect\` to link a Jira account again.`);
+  }
 
   // BUG / TASK / STORY / EPIC — typed issue creation
   const typedMatch = text.match(/^(bug|task|story|epic)\s+([A-Z][A-Z0-9_]*)\s+(.+)$/i);
   if (typedMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const issueType  = typedMatch[1].charAt(0).toUpperCase() + typedMatch[1].slice(1).toLowerCase();
     const projectKey = typedMatch[2].toUpperCase();
     const summary    = typedMatch[3].trim();
     const emojiMap   = { Bug: '🐛', Task: '✅', Story: '📖', Epic: '⚡' };
-    const createRes  = await api.asApp().requestJira(route`/rest/api/3/issue`, {
+    const createRes  = await atlassianFetch(teamsUserId, '/rest/api/3/issue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fields: { project: { key: projectKey }, summary, issuetype: { name: issueType } } })
@@ -32,17 +55,18 @@ export async function handleBotMessage(body) {
   // CREATE: "create PROJ Summary of the issue"
   const createMatch = text.match(/^create\s+([A-Z][A-Z0-9_]*)\s+(.+)$/i);
   if (createMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const projectKey = createMatch[1].toUpperCase();
     const summary    = createMatch[2].trim();
 
     // Fetch valid issue types for this project
-    const metaRes   = await api.asApp().requestJira(route`/rest/api/3/issue/createmeta?projectKeys=${projectKey}&expand=projects.issuetypes`);
+    const metaRes   = await atlassianFetch(teamsUserId, `/rest/api/3/issue/createmeta?projectKeys=${projectKey}&expand=projects.issuetypes`);
     const metaData  = await metaRes.json();
     const issueTypes = metaData.projects?.[0]?.issuetypes || [];
     const preferred  = ['Task', 'Story', 'Bug', 'Subtask'];
     const issueType  = issueTypes.find(t => preferred.includes(t.name))?.name || issueTypes[0]?.name || 'Task';
 
-    const createRes  = await api.asApp().requestJira(route`/rest/api/3/issue`, {
+    const createRes  = await atlassianFetch(teamsUserId, '/rest/api/3/issue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -66,13 +90,13 @@ export async function handleBotMessage(body) {
   if (searchMatch) {
     const query = searchMatch[1].trim();
     const jql   = query.includes('=') || query.includes('ORDER') ? query : `text ~ "${query}" ORDER BY updated DESC`;
-    const searchRes = await api.asApp().requestJira(route`/rest/api/3/search?jql=${jql}&maxResults=5&fields=summary,status,priority,issuetype,assignee`);
+    const searchRes = await api.asApp().requestJira(route`/rest/api/3/search/jql?jql=${jql}&maxResults=5&fields=summary,status,priority,issuetype,assignee`);
     const data  = await searchRes.json();
     const issues = (data.issues || []);
     if (!issues.length) return sendBotReply(body, [], `No issues found for: **${query}**`);
     const cards = issues.map(i => {
       const f = i.fields || {};
-      return issueCard(i.key, f.summary, f.issuetype?.name, f.status?.name, f.priority?.name, f.assignee?.displayName || 'Unassigned', `${process.env.JIRA_BASE_URL}/browse/${i.key}`, '🔍 Search Result');
+      return issueCard(i.key, f.summary, f.issuetype?.name, f.status?.name, f.priority?.name, f.assignee?.displayName || 'Unassigned', `${process.env.JIRA_BASE_URL}/browse/${i.key}`, '🔍 Search Result', f.issuetype?.iconUrl);
     });
     return sendBotReply(body, cards, `Found ${issues.length} issue(s):`);
   }
@@ -104,7 +128,7 @@ export async function handleBotMessage(body) {
     const assignee = f.assignee?.displayName || 'Unassigned';
     const reporter = f.reporter?.displayName || 'Unknown';
     const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey}`;
-    return sendBotReply(body, [issueCard(issueKey, summary, type, status, priority, assignee, issueUrl, `📋 ${reporter} reported`)]);
+    return sendBotReply(body, [issueCard(issueKey, summary, type, status, priority, assignee, issueUrl, `📋 ${reporter} reported`, f.issuetype?.iconUrl)]);
   }
 
   // UPDATE: "update PROJ-123 Done" (transition by status name)

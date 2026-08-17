@@ -1,7 +1,9 @@
 import api, { route } from '@forge/api';
 import { setBotDebugLog } from '../storage/kvsStore.js';
-import { issueCard, buildCreateIssueCard, buildCommentCard, buildLogTimeCard } from './cards.js';
+import { issueCard, buildCreateIssueSiteCard, buildCreateIssueProjectCard, buildCreateIssueDetailsCard, buildCommentCard, buildLogTimeCard } from './cards.js';
+import { sendBotReply } from '../graph/botReply.js';
 import { parseTimeToSeconds } from '../jira/utils.js';
+import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch } from '../jira/atlassianAuth.js';
 
 // Teams sends composeExtension/queryLink when a Jira URL is pasted — link unfurling.
 export async function handleQueryLink(body) {
@@ -97,7 +99,7 @@ export async function handleQueryLink(body) {
     }
   };
 
-  return { statusCode: 200, body: JSON.stringify(response), headers: { 'Content-Type': 'application/json' } };
+  return { statusCode: 200, body: JSON.stringify(response), headers: { 'Content-Type': ['application/json'] } };
 }
 
 // Message actions: fetchTask — route by commandId, return the adaptive-card form.
@@ -115,13 +117,16 @@ export async function handleFetchTask(body) {
     taskTitle   = 'Log Time in Jira';
     cardContent = buildLogTimeCard(messageText);
   } else {
-    taskTitle   = 'Create Jira Issue';
-    cardContent = buildCreateIssueCard(messageText);
+    // Step 1 of the create-issue wizard — Site → Project → Type/Summary/Description
+    taskTitle   = 'Create a work item';
+    const siteId   = process.env.JIRA_BASE_URL || 'site';
+    const siteName = (process.env.JIRA_BASE_URL || '').replace(/^https?:\/\//, '').split('.')[0] || 'Jira site';
+    cardContent = buildCreateIssueSiteCard(messageText, siteId, siteName);
   }
 
   return {
     statusCode: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': ['application/json'] },
     body: JSON.stringify({
       task: {
         type: 'continue',
@@ -161,7 +166,7 @@ export async function handleSubmitAction(body) {
     const commented = await commentRes.json();
     if (commented.id) {
       const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey.trim().toUpperCase()}`;
-      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ Comment added to **${issueKey.trim().toUpperCase()}** — [View in Jira](${issueUrl})` } }) };
+      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ Comment added to ${issueKey.trim().toUpperCase()}\n\n${issueUrl}` } }) };
     }
     return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `❌ Failed to add comment: ${JSON.stringify(commented.errors || commented)}` } }) };
   }
@@ -188,17 +193,57 @@ export async function handleSubmitAction(body) {
     const logged = await logRes.json();
     if (logged.id) {
       const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey.trim().toUpperCase()}`;
-      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ Logged **${timeSpent}** on **${issueKey.trim().toUpperCase()}** — [View in Jira](${issueUrl})` } }) };
+      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ Logged ${timeSpent} on ${issueKey.trim().toUpperCase()}\n\n${issueUrl}` } }) };
     }
     return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `❌ Failed to log time: ${JSON.stringify(logged.errors || logged)}` } }) };
   }
 
-  // ── Create Jira Issue (default) ──────────────────────────────────────
+  // ── Create a work item — 3-step wizard: Site → Project → Type/Summary/Description ──
+  // Use aadObjectId, not from.id — from.id is conversation-scoped in Teams (personal chat vs
+  // channel/group chat give the same person different ids), which is why `connect` and this
+  // wizard could disagree on "am I connected". aadObjectId is stable across all of them.
+  const teamsUserId = body.from?.aadObjectId || body.from?.id;
+  const { wizardStep } = data;
+
+  function continueWith(card) {
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': ['application/json'] },
+      body: JSON.stringify({ task: { type: 'continue', value: { title: 'Create a work item', height: 'medium', width: 'medium', card: { contentType: 'application/vnd.microsoft.card.adaptive', content: card } } } }),
+    };
+  }
+
+  if (wizardStep === 'site') {
+    console.log('[composeExtension] checking connection for teamsUserId:', teamsUserId, '| body.from:', JSON.stringify(body.from));
+    const auth = await getValidAtlassianAuth(teamsUserId);
+    console.log('[composeExtension] auth lookup result:', auth ? JSON.stringify({ hasCloudId: !!auth.cloudId, siteName: auth.siteName, expiresAt: auth.expiresAt }) : 'null');
+    if (!auth?.cloudId) {
+      const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
+      // task/message dialogs render plain text, not markdown — a [text](url) link here would
+      // show up as literal unparsed characters, so the bare URL goes out instead.
+      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `🔗 Connect your Jira account first, then try again:\n\n${url}` } }) };
+    }
+    const projRes  = await atlassianFetch(teamsUserId, '/rest/api/3/project/search?maxResults=50&orderBy=name');
+    const projData = await projRes.json();
+    const projects = (projData.values || []).map(p => ({ key: p.key, name: p.name }));
+    return continueWith(buildCreateIssueProjectCard(data.prefillText || '', data.siteId, projects));
+  }
+
+  if (wizardStep === 'project') {
+    const { projectKey, siteId, prefillText } = data;
+    if (!projectKey) return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Please select a project.' } }) };
+    const metaRes   = await atlassianFetch(teamsUserId, `/rest/api/3/issue/createmeta?projectKeys=${projectKey}&expand=projects.issuetypes`);
+    const metaData  = await metaRes.json();
+    const issueTypes = (metaData.projects?.[0]?.issuetypes || []).map(t => t.name);
+    return continueWith(buildCreateIssueDetailsCard(prefillText || '', siteId, projectKey, issueTypes));
+  }
+
+  // wizardStep === 'details' — final step, actually creates the issue
   const { projectKey, summary, issueType, description } = data;
   console.log('[composeExtension] submitAction — project:', projectKey, '| summary:', summary);
 
   if (!projectKey || !summary) {
-    return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Project Key and Summary are required.' } }) };
+    return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Project and Summary are required.' } }) };
   }
 
   const fields = {
@@ -213,7 +258,7 @@ export async function handleSubmitAction(body) {
     };
   }
 
-  const createRes = await api.asApp().requestJira(route`/rest/api/3/issue`, {
+  const createRes = await atlassianFetch(teamsUserId, '/rest/api/3/issue', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ fields }),
@@ -223,7 +268,13 @@ export async function handleSubmitAction(body) {
 
   if (created.key) {
     const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${created.key}`;
-    return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ **${created.key}** created — [Open in Jira](${issueUrl})` } }) };
+    // Best-effort: post the real issue card into the conversation, matching the official app.
+    // This only succeeds if the bot is already a member of that conversation — a message action
+    // can be invoked on messages in chats the bot was never added to, which Bot Framework refuses
+    // to post into (403 BotNotInConversationRoster). It fails silently, so the link below is a
+    // guaranteed fallback the user can always reach the issue from either way.
+    await sendBotReply(body, [issueCard(created.key, summary.trim(), issueType || 'Task', 'To Do', 'None', 'Unassigned', issueUrl, '✅ Created')]);
+    return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ ${created.key} created\n\n${issueUrl}` } }) };
   }
   const errDetail = JSON.stringify(created.errors || created.errorMessages || created);
   return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `❌ Failed to create issue: ${errDetail}` } }) };
@@ -237,9 +288,9 @@ export async function handleQuery(body) {
 
   const jql = searchQuery
     ? `text ~ "${searchQuery.replace(/"/g, '\\"')}" ORDER BY updated DESC`
-    : 'ORDER BY updated DESC';
+    : 'updated >= "1970/01/01" ORDER BY updated DESC';
 
-  const searchRes  = await api.asApp().requestJira(route`/rest/api/3/search?jql=${jql}&maxResults=8&fields=summary,status,priority,issuetype,assignee`);
+  const searchRes  = await api.asApp().requestJira(route`/rest/api/3/search/jql?jql=${jql}&maxResults=8&fields=summary,status,priority,issuetype,assignee`);
   const searchData = await searchRes.json();
   const issues = searchData.issues || [];
 
@@ -248,7 +299,7 @@ export async function handleQuery(body) {
     const url = `${process.env.JIRA_BASE_URL}/browse/${i.key}`;
     return {
       contentType: 'application/vnd.microsoft.card.adaptive',
-      content: issueCard(i.key, f.summary, f.issuetype?.name, f.status?.name, f.priority?.name, f.assignee?.displayName || 'Unassigned', url, `${f.issuetype?.name || 'Issue'} · ${f.status?.name || ''}`),
+      content: issueCard(i.key, f.summary, f.issuetype?.name, f.status?.name, f.priority?.name, f.assignee?.displayName || 'Unassigned', url, `${f.issuetype?.name || 'Issue'} · ${f.status?.name || ''}`, f.issuetype?.iconUrl),
       preview: {
         contentType: 'application/vnd.microsoft.card.thumbnail',
         content: {
@@ -263,7 +314,7 @@ export async function handleQuery(body) {
 
   return {
     statusCode: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': ['application/json'] },
     body: JSON.stringify({ composeExtension: { type: 'result', attachmentLayout: 'list', attachments } }),
   };
 }

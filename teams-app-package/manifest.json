@@ -1,8 +1,8 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
   "manifestVersion": "1.16",
-  "version": "1.0.2",
-  "id": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+  "version": "1.1.0",
+  "id": "34949199-6e9d-481b-9549-1a559079adcb",
   "packageName": "com.clovity.jira.connector",
   "developer": {
     "name": "Clovity",
@@ -25,7 +25,7 @@
   "accentColor": "#0052CC",
   "bots": [
     {
-      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "botId": "34949199-6e9d-481b-9549-1a559079adcb",
       "scopes": ["personal", "team", "groupchat"],
       "supportsFiles": false,
       "isNotificationOnly": false,
@@ -49,7 +49,7 @@
   ],
   "composeExtensions": [
     {
-      "botId": "8529f84e-4daa-48df-bd92-0f62fd47651e",
+      "botId": "34949199-6e9d-481b-9549-1a559079adcb",
       "commands": [
         {
           "id": "createJiraIssue",
@@ -109,6 +109,22 @@
           }
         }
       ]
+    }
+  ],
+  "staticTabs": [
+    {
+      "entityId": "jira-issues-personal-tab",
+      "name": "My Jira Issues",
+      "contentUrl": "https://1e22dbd0-9cce-44ac-b3b7-03d8530fb34e.hello.atlassian-dev.net/x1/eeGtmdcuSsFXrMtrmSOo1SRJKtw",
+      "scopes": ["personal"]
+    }
+  ],
+  "configurableTabs": [
+    {
+      "configurationUrl": "https://1e22dbd0-9cce-44ac-b3b7-03d8530fb34e.hello.atlassian-dev.net/x1/j72O7GYkrvgovO4ccrUcGju02kE",
+      "canUpdateConfiguration": true,
+      "scopes": ["team", "groupChat"],
+      "context": ["channelTab", "privateChatTab", "meetingChatTab", "meetingDetailsTab", "meetingSidePanel"]
     }
   ],
   "permissions": ["identity", "messageTeamMembers"],

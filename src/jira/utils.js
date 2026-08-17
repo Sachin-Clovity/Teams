@@ -21,3 +21,25 @@ export async function getJiraUserEmail(accountId) {
   const data = await res.json();
   return data.emailAddress || null;
 }
+
+// accountIds of everyone watching this issue (excludes nothing — caller decides who to skip)
+export async function getIssueWatchers(issueKey) {
+  const res  = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/watchers`);
+  const data = await res.json();
+  return (data.watchers || []).map(w => w.accountId).filter(Boolean);
+}
+
+// accountIds of everyone @mentioned in an ADF document (comment body, etc.)
+export function extractMentionedAccountIds(node, out = []) {
+  if (!node) return out;
+  if (node.type === 'mention' && node.attrs?.id) out.push(node.attrs.id);
+  if (node.content) node.content.forEach(child => extractMentionedAccountIds(child, out));
+  return out;
+}
+
+// Most recent comment on an issue, or null if it has none
+export async function getLatestComment(issueKey) {
+  const res  = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/comment?maxResults=1&orderBy=-created`);
+  const data = await res.json();
+  return data.comments?.[0] || null;
+}

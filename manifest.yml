@@ -57,12 +57,36 @@ modules:
     - key: teams-bot-handler
       handler: index.teamsBotHandler
 
+    - key: teams-tab-data-fn
+      handler: index.teamsTabData
+
+    - key: teams-tab-content-fn
+      handler: index.teamsTabContent
+
+    - key: teams-tab-config-fn
+      handler: index.teamsTabConfig
+
+    - key: atlassian-oauth-fn
+      handler: index.atlassianOAuthCallback
+
   webtrigger:
     - key: automation-teams-webhook
       function: automation-webhook
 
     - key: teams-bot-endpoint
       function: teams-bot-handler
+
+    - key: teams-tab-data
+      function: teams-tab-data-fn
+
+    - key: teams-tab-content
+      function: teams-tab-content-fn
+
+    - key: teams-tab-config
+      function: teams-tab-config-fn
+
+    - key: atlassian-oauth-callback
+      function: atlassian-oauth-fn
 
 resources:
   - key: main
@@ -73,6 +97,57 @@ remotes:
     baseUrl: https://graph.microsoft.com
   - key: ms-login
     baseUrl: https://login.microsoftonline.com
+  - key: atlassian-auth
+    baseUrl: https://auth.atlassian.com
+  - key: atlassian-api
+    baseUrl: https://api.atlassian.com
+
+providers:
+  auth:
+    - key: microsoft
+      name: Microsoft
+      type: oauth2
+      clientId: 19b69949-d72d-4fb6-bc7e-7cc937682892
+      scopes:
+        - offline_access
+        - User.Read
+        - Team.ReadBasic.All
+        - Channel.ReadBasic.All
+        - ChannelMessage.Send
+        - Chat.ReadWrite
+      remotes:
+        - ms-login
+        - ms-graph
+      bearerMethod: authorization-header
+      actions:
+        authorization:
+          remote: ms-login
+          path: /a8b56489-ddb8-43d8-a141-cdda5f7aaa29/oauth2/v2.0/authorize
+        exchange:
+          remote: ms-login
+          path: /a8b56489-ddb8-43d8-a141-cdda5f7aaa29/oauth2/v2.0/token
+          overrides:
+            body:
+              client_id: "{{client_id}}"
+              client_secret: "{{client_secret}}"
+              grant_type: authorization_code
+              redirect_uri: "{{redirect_uri}}"
+              code: "{{authorization_code}}"
+        refreshToken:
+          remote: ms-login
+          path: /a8b56489-ddb8-43d8-a141-cdda5f7aaa29/oauth2/v2.0/token
+          overrides:
+            body:
+              client_id: "{{client_id}}"
+              client_secret: "{{client_secret}}"
+              grant_type: refresh_token
+              refresh_token: "{{refresh_token}}"
+        retrieveProfile:
+          remote: ms-graph
+          path: /v1.0/me
+          resolvers:
+            id: id
+            displayName: displayName
 
 permissions:
   external:
@@ -84,9 +159,12 @@ permissions:
         - address: https://graph.microsoft.com
         - address: https://login.microsoftonline.com
         - address: https://outlook.office.com
+        - address: https://webchat.botframework.com
         - address: https://*.webhook.office.com
         - address: https://*.trafficmanager.net
         - address: https://*.powerplatform.com
+        - address: https://auth.atlassian.com
+        - address: https://api.atlassian.com
 
   scopes:
     - storage:app

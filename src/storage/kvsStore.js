@@ -69,11 +69,43 @@ export async function clearProjectConfig(projectKey) {
 
 // ── Per-user personal notification preferences ──────────────────────────────
 export async function getPersonalConfig(accountId) {
-  return (await kvs.get(personalConfigKey(accountId))) || { dmOnAssigned: true, dmOnStatusChange: false };
+  return (await kvs.get(personalConfigKey(accountId))) || {
+    dmOnAssigned: true,
+    dmOnStatusChange: false,
+    dmOnReported: false,
+    dmOnMentioned: true,
+    dmOnWatching: false,
+  };
 }
 
 export async function savePersonalConfig(accountId, settings) {
   await kvs.set(personalConfigKey(accountId), settings);
+}
+
+// ── Per-Teams-user connected Atlassian account (real OAuth token, not the app identity) ────
+const atlassianAuthKey = teamsUserId => `atlassian-auth:${teamsUserId}`;
+
+export async function getAtlassianAuth(teamsUserId) {
+  return kvs.get(atlassianAuthKey(teamsUserId));
+}
+
+export async function saveAtlassianAuth(teamsUserId, data) {
+  await kvs.set(atlassianAuthKey(teamsUserId), data);
+}
+
+export async function clearAtlassianAuth(teamsUserId) {
+  await kvs.delete(atlassianAuthKey(teamsUserId));
+}
+
+// ── Per-issue channel notification subscription (the "Notify" card button) ────────────
+const issueNotifyKey = issueKey => `issue-notify:${issueKey}`;
+
+export async function getIssueNotifySub(issueKey) {
+  return kvs.get(issueNotifyKey(issueKey));
+}
+
+export async function saveIssueNotifySub(issueKey, sub) {
+  await kvs.set(issueNotifyKey(issueKey), sub);
 }
 
 // ── Bot debug log — visible via admin UI (works on AGC where logs are restricted) ──

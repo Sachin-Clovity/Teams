@@ -1,6 +1,7 @@
 import { setBotDebugLog } from '../storage/kvsStore.js';
 import { handleQueryLink, handleFetchTask, handleSubmitAction, handleQuery } from '../bot/composeExtension.js';
 import { handleBotMessage } from '../bot/commands.js';
+import { handleTaskFetch, handleTaskSubmit } from '../bot/cardActions.js';
 
 // Jira link previews, message actions, compose extension search, and text commands — the Teams bot endpoint.
 export async function teamsBotHandler(req) {
@@ -29,6 +30,10 @@ export async function teamsBotHandler(req) {
     if (body.type === 'invoke' && body.name === 'composeExtension/fetchTask')    return handleFetchTask(body);
     if (body.type === 'invoke' && body.name === 'composeExtension/submitAction') return handleSubmitAction(body);
     if (body.type === 'invoke' && body.name === 'composeExtension/query')       return handleQuery(body);
+    // Comment/Edit/Notify buttons on issueCard() open a task-module dialog — same mechanism
+    // as the message-action three-dot menu, just triggered from a bot-sent card instead.
+    if (body.type === 'invoke' && body.name === 'task/fetch')  return handleTaskFetch(body);
+    if (body.type === 'invoke' && body.name === 'task/submit') return handleTaskSubmit(body);
     if (body.type === 'message') return handleBotMessage(body);
 
     // Default response for other activity types (ping, etc.)

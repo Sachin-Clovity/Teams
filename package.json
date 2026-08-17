@@ -9,6 +9,7 @@
     "predeploy": "npm --prefix static/hello-world install && npm run build",
     "deploy": "forge deploy --environment development --non-interactive",
     "install-app": "forge install",
+    "dev": "forge tunnel -e development",
     "tunnel": "forge tunnel",
     "lint": "forge lint",
     "logs": "forge logs"
