@@ -1,9 +1,5 @@
-import { exchangeCodeForToken, getAccessibleResources } from '../jira/atlassianAuth.js';
+import { exchangeCodeForToken, getAccessibleResources, signState, verifyState, ATLASSIAN_REDIRECT_URI as REDIRECT_URI } from '../jira/atlassianAuth.js';
 import { getAtlassianAuth, saveAtlassianAuth } from '../storage/kvsStore.js';
-
-// This function's own deployed webtrigger URL — Atlassian requires an exact match against
-// the callback URL registered in the OAuth app, so this gets filled in after first deploy.
-const REDIRECT_URI = 'https://1e22dbd0-9cce-44ac-b3b7-03d8530fb34e.hello.atlassian-dev.net/x1/UUV5ZkTMpm3qpqhcFjoATLIy3YU';
 
 function page(title, bodyHtml) {
   const html = `<!DOCTYPE html>
@@ -33,10 +29,14 @@ export async function atlassianOAuthCallback(req) {
   try {
     // ── Step 2: user picked which Jira site to connect (only shown if they have more than one) ──
     if (step === 'select') {
-      const teamsUserId = qp.teamsUserId?.[0];
+      const teamsUserId = verifyState(qp.teamsUserId?.[0]);
       const cloudId     = qp.cloudId?.[0];
       const siteName    = qp.siteName?.[0] || '';
       const siteUrl     = qp.siteUrl?.[0] || '';
+
+      if (!teamsUserId) {
+        return page('Connect Jira', `<h1 class="error">Invalid or tampered link</h1><p>Please go back to Teams and start connecting again.</p>`);
+      }
 
       const existing = await getAtlassianAuth(teamsUserId);
       if (!existing) {
@@ -48,10 +48,12 @@ export async function atlassianOAuthCallback(req) {
 
     // ── Step 1: OAuth code exchange, right after the user approved access ──
     const code        = qp.code?.[0];
-    const teamsUserId = qp.state?.[0];
-    console.log('[atlassianOAuthCallback] saving auth for teamsUserId (from state):', teamsUserId);
+    const teamsUserId = verifyState(qp.state?.[0]);
+    console.log('[atlassianOAuthCallback] saving auth for teamsUserId (from verified state):', teamsUserId);
     if (!code || !teamsUserId) {
-      return page('Connect Jira', `<h1 class="error">Missing information</h1><p>Please start the connection again from Teams.</p>`);
+      // A missing/invalid signature means this state was never issued by buildAuthorizationUrl()
+      // for anyone — either it's stale, or someone tampered with it. Either way, don't trust it.
+      return page('Connect Jira', `<h1 class="error">Missing or invalid information</h1><p>Please start the connection again from Teams.</p>`);
     }
 
     const tokenData = await exchangeCodeForToken(code, REDIRECT_URI);
@@ -87,8 +89,9 @@ export async function atlassianOAuthCallback(req) {
       return page('Connected', `<h1 class="success">✅ Connected to ${s.name}</h1><p>You can close this window and go back to Teams.</p>`);
     }
 
+    const signedTeamsUserId = signState(teamsUserId);
     const links = sites.map(s =>
-      `<a class="site" href="?step=select&teamsUserId=${encodeURIComponent(teamsUserId)}&cloudId=${encodeURIComponent(s.id)}&siteName=${encodeURIComponent(s.name)}&siteUrl=${encodeURIComponent(s.url)}">${s.name}</a>`
+      `<a class="site" href="?step=select&teamsUserId=${encodeURIComponent(signedTeamsUserId)}&cloudId=${encodeURIComponent(s.id)}&siteName=${encodeURIComponent(s.name)}&siteUrl=${encodeURIComponent(s.url)}">${s.name}</a>`
     ).join('');
     return page('Choose your Jira site', `<h1>Choose your Jira site</h1><p>Your Atlassian account has access to more than one site — pick which one to connect:</p>${links}`);
   } catch (e) {

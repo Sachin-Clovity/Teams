@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'crypto';
 import { getAtlassianAuth, saveAtlassianAuth } from '../storage/kvsStore.js';
 
 const AUTH_BASE = 'https://auth.atlassian.com';
@@ -8,8 +9,32 @@ const SCOPES = ['read:jira-work', 'write:jira-work', 'read:jira-user', 'offline_
 // OAuth app's callback in the Atlassian Developer Console.
 export const ATLASSIAN_REDIRECT_URI = 'https://1e22dbd0-9cce-44ac-b3b7-03d8530fb34e.hello.atlassian-dev.net/x1/UUV5ZkTMpm3qpqhcFjoATLIy3YU';
 
+// Signs the teamsUserId into the OAuth "state" param so the callback can prove it wasn't
+// tampered with — without this, anyone could hand-craft a callback URL with someone else's
+// teamsUserId as state and have their own Atlassian tokens saved under that person's identity.
+// Reuses the OAuth app's own client secret as the HMAC key rather than adding a new Forge
+// variable — its HMAC output doesn't expose the underlying secret.
+export function signState(teamsUserId) {
+  const sig = createHmac('sha256', process.env.ATLASSIAN_OAUTH_CLIENT_SECRET).update(teamsUserId).digest('hex');
+  return `${teamsUserId}.${sig}`;
+}
+
+// Returns the original teamsUserId if the signature checks out, otherwise null.
+export function verifyState(signedState) {
+  if (!signedState) return null;
+  const dot = signedState.lastIndexOf('.');
+  if (dot === -1) return null;
+  const teamsUserId = signedState.slice(0, dot);
+  const providedSig = signedState.slice(dot + 1);
+  const expectedSig = createHmac('sha256', process.env.ATLASSIAN_OAUTH_CLIENT_SECRET).update(teamsUserId).digest('hex');
+  const a = Buffer.from(providedSig, 'hex');
+  const b = Buffer.from(expectedSig, 'hex');
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  return teamsUserId;
+}
+
 // Where we send the user to sign in and pick which of their Jira sites to authorize.
-export function buildAuthorizationUrl(redirectUri, state) {
+export function buildAuthorizationUrl(redirectUri, teamsUserId) {
   const params = new URLSearchParams({
     audience: 'api.atlassian.com',
     client_id: process.env.ATLASSIAN_OAUTH_CLIENT_ID,
@@ -17,7 +42,7 @@ export function buildAuthorizationUrl(redirectUri, state) {
     redirect_uri: redirectUri,
     response_type: 'code',
     prompt: 'consent',
-    state: state || '',
+    state: teamsUserId ? signState(teamsUserId) : '',
   });
   return `${AUTH_BASE}/authorize?${params.toString()}`;
 }

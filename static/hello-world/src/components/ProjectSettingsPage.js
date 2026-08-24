@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
+import { PageHeader, SectionCard } from './common';
 
 const NOTIFICATION_FIELDS = [
   { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
@@ -95,69 +96,71 @@ export default function ProjectSettingsPage({ projectKey }) {
 
   return (
     <div className="max-w-xl mx-auto p-6 font-sans">
-      <h1 className="text-lg font-bold text-jira-dark mb-1">Teams Connector — {projectKey} Settings</h1>
-      <p className="text-xs text-jira-grey mb-4">Override the global Teams channel and notification rules for this project only. Leave unset to use the global default.</p>
+      <PageHeader
+        title={`Teams Connector — ${projectKey}`}
+        subtitle="Override the global Teams channel and notification rules for this project only. Leave unset to use the global default."
+      />
 
       {err && <div className="alert-err">{err}</div>}
       {msg && <div className="alert-ok">{msg}</div>}
 
-      <div className="section-title">Destination channel</div>
-      {!teams.length && <button className="btn-blue w-full mb-3" onClick={loadTeams}>Load Teams</button>}
-      {!!teams.length && (
-        <>
-          <label className="label">Team</label>
-          <select className="form-select mb-3" value={teamId} onChange={e => onTeamChange(e.target.value)}>
-            <option value="">— choose a team —</option>
-            {teams.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
-          </select>
-        </>
-      )}
-      {!!channels.length && (
-        <>
-          <label className="label">Channel</label>
-          <select className="form-select mb-3" value={channelId} onChange={e => setChannelId(e.target.value)}>
-            <option value="">— choose a channel —</option>
-            {channels.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
-          </select>
-        </>
-      )}
-      <label className="label">Webhook URL</label>
-      <input className="form-input mb-4 text-xs" value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} placeholder="https://outlook.office.com/webhook/..." />
+      <SectionCard title="Destination channel">
+        {!teams.length && <button className="btn-blue w-full mb-1" onClick={loadTeams}>Load Teams</button>}
+        {!!teams.length && (
+          <>
+            <label className="label">Team</label>
+            <select className="form-select mb-3" value={teamId} onChange={e => onTeamChange(e.target.value)}>
+              <option value="">— choose a team —</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.displayName}</option>)}
+            </select>
+          </>
+        )}
+        {!!channels.length && (
+          <>
+            <label className="label">Channel</label>
+            <select className="form-select mb-3" value={channelId} onChange={e => setChannelId(e.target.value)}>
+              <option value="">— choose a channel —</option>
+              {channels.map(c => <option key={c.id} value={c.id}>{c.displayName}</option>)}
+            </select>
+          </>
+        )}
+        <label className="label">Webhook URL</label>
+        <input className="form-input text-xs" value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} placeholder="https://outlook.office.com/webhook/..." />
+      </SectionCard>
 
-      <div className="divider" />
-      <div className="section-title">Notify only for (leave empty = all)</div>
+      <SectionCard title="Notify only for" description="Leave a group empty to match all values.">
+        <label className="label">Issue Types</label>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {meta.issueTypes.map(t => (
+            <button key={t} type="button" onClick={() => toggleInList(issueTypeFilter, setIssueTypeFilter, t)} className={chipClass(issueTypeFilter.includes(t))}>{t}</button>
+          ))}
+        </div>
 
-      <label className="label">Issue Types</label>
-      <div className="flex flex-wrap gap-2 mb-3">
-        {meta.issueTypes.map(t => (
-          <button key={t} type="button" onClick={() => toggleInList(issueTypeFilter, setIssueTypeFilter, t)} className={chipClass(issueTypeFilter.includes(t))}>{t}</button>
-        ))}
-      </div>
+        <label className="label">Statuses</label>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {meta.statuses.map(s => (
+            <button key={s} type="button" onClick={() => toggleInList(statusFilter, setStatusFilter, s)} className={chipClass(statusFilter.includes(s))}>{s}</button>
+          ))}
+        </div>
 
-      <label className="label">Statuses</label>
-      <div className="flex flex-wrap gap-2 mb-3">
-        {meta.statuses.map(s => (
-          <button key={s} type="button" onClick={() => toggleInList(statusFilter, setStatusFilter, s)} className={chipClass(statusFilter.includes(s))}>{s}</button>
-        ))}
-      </div>
+        <label className="label">Priorities</label>
+        <div className="flex flex-wrap gap-2">
+          {meta.priorities.map(p => (
+            <button key={p} type="button" onClick={() => toggleInList(priorityFilter, setPriorityFilter, p)} className={chipClass(priorityFilter.includes(p))}>{p}</button>
+          ))}
+        </div>
+      </SectionCard>
 
-      <label className="label">Priorities</label>
-      <div className="flex flex-wrap gap-2 mb-4">
-        {meta.priorities.map(p => (
-          <button key={p} type="button" onClick={() => toggleInList(priorityFilter, setPriorityFilter, p)} className={chipClass(priorityFilter.includes(p))}>{p}</button>
-        ))}
-      </div>
-
-      <div className="divider" />
-      <div className="section-title">Fields shown in notification</div>
-      <div className="card space-y-2 mb-4">
-        {NOTIFICATION_FIELDS.map(f => (
-          <label key={f.key} className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="w-4 h-4 accent-jira-blue" checked={fields.includes(f.key)} onChange={() => toggleField(f.key)} />
-            <span className="text-sm text-jira-dark">{f.label}</span>
-          </label>
-        ))}
-      </div>
+      <SectionCard title="Fields shown in notification">
+        <div className="card space-y-2 mb-0">
+          {NOTIFICATION_FIELDS.map(f => (
+            <label key={f.key} className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" className="w-4 h-4 accent-jira-blue" checked={fields.includes(f.key)} onChange={() => toggleField(f.key)} />
+              <span className="text-sm text-jira-dark">{f.label}</span>
+            </label>
+          ))}
+        </div>
+      </SectionCard>
 
       <div className="flex gap-2">
         <button className="btn-blue flex-1" onClick={save}>Save Project Settings</button>

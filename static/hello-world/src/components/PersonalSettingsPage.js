@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
+import { PageHeader, SectionCard } from './common';
 
 const DEFAULT_SETTINGS = {
   dmOnAssigned: true,
@@ -39,23 +40,24 @@ export default function PersonalSettingsPage() {
 
   return (
     <div className="max-w-xl mx-auto p-6 font-sans">
-      <h1 className="text-lg font-bold text-jira-dark mb-1">My Teams Notifications</h1>
-      <p className="text-xs text-jira-grey mb-4">Choose when the Jira bot DMs you directly in Microsoft Teams.</p>
+      <PageHeader title="My Teams Notifications" subtitle="Choose when the Jira bot DMs you directly in Microsoft Teams." />
 
-      <div className="card space-y-3">
-        {TOGGLES.map(t => (
-          <label key={t.key} className="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" className="mt-0.5 w-4 h-4 accent-jira-blue" checked={!!settings[t.key]}
-              onChange={e => setSettings(prev => ({ ...prev, [t.key]: e.target.checked }))} />
-            <div>
-              <div className="text-sm font-medium text-jira-dark">{t.label}</div>
-              <div className="text-xs text-jira-grey">{t.desc}</div>
-            </div>
-          </label>
-        ))}
-      </div>
+      <SectionCard>
+        <div className="card space-y-3 mb-0">
+          {TOGGLES.map(t => (
+            <label key={t.key} className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" className="mt-0.5 w-4 h-4 accent-jira-blue" checked={!!settings[t.key]}
+                onChange={e => { const checked = e.target.checked; setSettings(prev => ({ ...prev, [t.key]: checked })); }} />
+              <div>
+                <div className="text-sm font-medium text-jira-dark">{t.label}</div>
+                <div className="text-xs text-jira-grey">{t.desc}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+      </SectionCard>
 
-      <div className="flex items-center gap-3 mt-3">
+      <div className="flex items-center gap-3">
         <button className="btn-blue" onClick={save}>Save</button>
         {saved && <span className="text-jira-green text-xs font-semibold">Saved!</span>}
       </div>

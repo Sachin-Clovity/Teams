@@ -2,12 +2,22 @@ import { setBotDebugLog } from '../storage/kvsStore.js';
 import { handleQueryLink, handleFetchTask, handleSubmitAction, handleQuery } from '../bot/composeExtension.js';
 import { handleBotMessage } from '../bot/commands.js';
 import { handleTaskFetch, handleTaskSubmit } from '../bot/cardActions.js';
+import { verifyBotFrameworkRequest } from '../graph/botAuth.js';
 
 // Jira link previews, message actions, compose extension search, and text commands — the Teams bot endpoint.
 export async function teamsBotHandler(req) {
   try {
     console.log('[teamsBotHandler] ─── INCOMING REQUEST ───');
     console.log('[teamsBotHandler] req.body exists:', !!req.body);
+
+    // LOG-ONLY for now — not yet blocking requests. This confirms real Teams traffic actually
+    // verifies correctly before flipping it to reject. Right now this endpoint trusts
+    // body.from.aadObjectId with no proof the request came from Microsoft at all; this check
+    // is step one of closing that gap without risking taking the bot offline on a wrong
+    // assumption about how Forge exposes request headers.
+    const authCheck = await verifyBotFrameworkRequest(req.headers);
+    console.log('[teamsBotHandler] Bot Framework auth check:', authCheck.valid ? 'VALID' : `INVALID (${authCheck.reason})`);
+
     const body = req.body ? JSON.parse(req.body) : {};
     console.log('[teamsBotHandler] type:', body.type, '| name:', body.name);
     console.log('[teamsBotHandler] from:', body.from?.name, '| channel:', body.channelId);

@@ -4,7 +4,7 @@ modules:
       resource: main
       resolver:
         function: resolver
-      title: Teams Connectorss
+      title: Teams Connector
 
   jira:issueContext:
     - key: teams-issue-context
@@ -160,6 +160,7 @@ permissions:
         - address: https://login.microsoftonline.com
         - address: https://outlook.office.com
         - address: https://webchat.botframework.com
+        - address: https://login.botframework.com
         - address: https://*.webhook.office.com
         - address: https://*.trafficmanager.net
         - address: https://*.powerplatform.com

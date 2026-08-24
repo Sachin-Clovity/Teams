@@ -16,6 +16,18 @@ export async function handleBotMessage(body) {
   const teamsUserId = body.from?.aadObjectId || body.from?.id;
   console.log('[botCommand] message command:', text, '| from:', teamsUserId, '| body.from:', JSON.stringify(body.from));
 
+  try {
+    return await dispatchCommand(body, text, teamsUserId);
+  } catch (e) {
+    // Without this, a Jira outage/rate-limit (a non-JSON error body making res.json() throw,
+    // for example) propagates uncaught to teamsBotHandler's outer catch, which returns a
+    // raw 500 — the user who typed the command gets no reply at all, not even an error message.
+    console.log('[botCommand] unhandled error:', e.message);
+    return sendBotReply(body, [], `❌ Something went wrong talking to Jira. Please try again in a moment.`);
+  }
+}
+
+async function dispatchCommand(body, text, teamsUserId) {
   // CONNECT: link this Teams user to their real Jira account
   if (/^connect$/i.test(text)) {
     console.log('[botCommand] connect — teamsUserId used for lookup/save:', teamsUserId);
@@ -89,7 +101,7 @@ export async function handleBotMessage(body) {
   const searchMatch = text.match(/^search\s+(.+)$/i);
   if (searchMatch) {
     const query = searchMatch[1].trim();
-    const jql   = query.includes('=') || query.includes('ORDER') ? query : `text ~ "${query}" ORDER BY updated DESC`;
+    const jql   = query.includes('=') || query.includes('ORDER') ? query : `text ~ "${query.replace(/"/g, '\\"')}" ORDER BY updated DESC`;
     const searchRes = await api.asApp().requestJira(route`/rest/api/3/search/jql?jql=${jql}&maxResults=5&fields=summary,status,priority,issuetype,assignee`);
     const data  = await searchRes.json();
     const issues = (data.issues || []);
@@ -134,16 +146,17 @@ export async function handleBotMessage(body) {
   // UPDATE: "update PROJ-123 Done" (transition by status name)
   const updateMatch = text.match(/^update\s+([A-Z][A-Z0-9_]*-\d+)\s+(.+)$/i);
   if (updateMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const issueKey  = updateMatch[1].toUpperCase();
     const newStatus = updateMatch[2].trim();
-    const transRes  = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/transitions`);
+    const transRes  = await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}/transitions`);
     const transData = await transRes.json();
     const transition = (transData.transitions || []).find(t => t.name.toLowerCase() === newStatus.toLowerCase());
     if (!transition) {
       const available = (transData.transitions || []).map(t => t.name).join(', ');
       return sendBotReply(body, [], `❌ Status **"${newStatus}"** not found. Available: ${available}`);
     }
-    await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/transitions`, {
+    await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}/transitions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transition: { id: transition.id } })
@@ -154,9 +167,10 @@ export async function handleBotMessage(body) {
   // COMMENT: "comment PROJ-123 This is a comment"
   const commentMatch = text.match(/^comment\s+([A-Z][A-Z0-9_]*-\d+)\s+(.+)$/i);
   if (commentMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const issueKey   = commentMatch[1].toUpperCase();
     const commentTxt = commentMatch[2].trim();
-    const commentRes = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/comment`, {
+    const commentRes = await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}/comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -174,6 +188,7 @@ export async function handleBotMessage(body) {
   // LOG: "log PROJ-123 2h Worked on the bug fix"
   const logMatch = text.match(/^log\s+([A-Z][A-Z0-9_]*-\d+)\s+(\d+[hm](?:\s+\d+[hm])?)\s*(.*)$/i);
   if (logMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const issueKey   = logMatch[1].toUpperCase();
     const timeStr    = logMatch[2].trim();
     const logNote    = logMatch[3].trim();
@@ -183,7 +198,7 @@ export async function handleBotMessage(body) {
     if (logNote) {
       worklogBody.comment = { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: logNote }] }] };
     }
-    const logRes = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/worklog`, {
+    const logRes = await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}/worklog`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(worklogBody),
@@ -199,13 +214,14 @@ export async function handleBotMessage(body) {
   // ASSIGN: "assign PROJ-123 user@domain.com"
   const assignMatch = text.match(/^assign\s+([A-Z][A-Z0-9_]*-\d+)\s+(\S+@\S+)$/i);
   if (assignMatch) {
+    if (!(await requireConnection(body, teamsUserId))) return { statusCode: 200, body: JSON.stringify({}) };
     const issueKey = assignMatch[1].toUpperCase();
     const email    = assignMatch[2].trim();
-    const userRes  = await api.asApp().requestJira(route`/rest/api/3/user/search?query=${email}&maxResults=1`);
+    const userRes  = await atlassianFetch(teamsUserId, `/rest/api/3/user/search?query=${email}&maxResults=1`);
     const users    = await userRes.json();
     const user     = Array.isArray(users) ? users[0] : null;
     if (!user) return sendBotReply(body, [], `❌ User **${email}** not found in Jira.`);
-    await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}`, {
+    await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fields: { assignee: { accountId: user.accountId } } }),

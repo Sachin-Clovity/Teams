@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
+import { PageHeader, SectionCard, Stepper } from './common';
 
 const NOTIFICATION_FIELDS = [
   { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
@@ -133,37 +134,34 @@ export default function AdminPage() {
     setMsg('Disconnected and configuration cleared.');
   }
 
+  const stepIndex = savedConfig ? 2 : connected ? 1 : 0;
+
   return (
     <div className="max-w-xl mx-auto p-6 font-sans">
+      <PageHeader title="Microsoft Teams Connector" subtitle="Send Jira issue events to Teams via Microsoft Graph API" />
 
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-8 h-8 bg-jira-blue rounded flex items-center justify-center text-white font-bold text-sm">J</div>
-          <h1 className="text-lg font-bold text-jira-dark">Microsoft Teams Connector</h1>
-        </div>
-        <p className="text-xs text-jira-grey ml-11">Send Jira issue events to Teams via Microsoft Graph API</p>
-      </div>
+      <Stepper steps={['Connect', 'Destination', 'Configure']} currentIndex={stepIndex} />
 
       {err && <div className="alert-err">{err}</div>}
       {msg && <div className="alert-ok">{msg}</div>}
 
       {/* Step 1 — Connect */}
-      <div className="section-title">Step 1 — Connect to Microsoft Teams</div>
-      {!connected ? (
-        <button className="btn-blue w-full" onClick={connect} disabled={loading}>
-          {loading ? 'Connecting…' : 'Connect Microsoft Teams'}
-        </button>
-      ) : (
-        <>
-          <div className="card flex items-center gap-3">
+      <SectionCard title="Step 1 — Connect to Microsoft Teams" tone={connected ? 'default' : 'highlight'}>
+        {!connected ? (
+          <button className="btn-blue w-full" onClick={connect} disabled={loading}>
+            {loading ? 'Connecting…' : 'Connect Microsoft Teams'}
+          </button>
+        ) : (
+          <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-jira-green"></div>
             <span className="text-sm font-semibold text-jira-dark">Connected to Microsoft Teams</span>
           </div>
+        )}
+      </SectionCard>
 
-          <div className="divider" />
-          <div className="section-title">Step 2 — Select Destination</div>
-
+      {/* Step 2 — Destination */}
+      {connected && (
+        <SectionCard title="Step 2 — Select Destination" tone={savedConfig ? 'default' : 'highlight'}>
           <label className="label">Team</label>
           <select className="form-select mb-3" value={teamId} onChange={onTeamChange}>
             <option value="">— choose a team —</option>
@@ -188,7 +186,7 @@ export default function AdminPage() {
             value={webhookUrl}
             onChange={e => setWebhookUrlInput(e.target.value)}
           />
-          <p className="text-xs text-jira-grey mb-4">Teams channel → ··· → Connectors → Incoming Webhook → Configure → Copy URL</p>
+          <p className="text-xs text-jira-grey mb-4">Teams channel → ··· → Workflows → "Send webhook alerts to a channel" template → Save → Copy URL</p>
 
           <label className="label">Fields to include in notifications</label>
           <div className="card space-y-2 mb-4">
@@ -210,16 +208,14 @@ export default function AdminPage() {
             </button>
             <button className="btn-red" onClick={disconnect}>Disconnect</button>
           </div>
-        </>
+        </SectionCard>
       )}
 
-      {/* Step 3 — Active Config */}
+      {/* Step 3 — Active Config + management */}
       {savedConfig && (
         <>
-          <div className="divider" />
-          <div className="section-title">Step 3 — Active Configuration</div>
-          <div className="card">
-            <div className="grid grid-cols-2 gap-3">
+          <SectionCard title="Step 3 — Active Configuration" tone="highlight">
+            <div className="grid grid-cols-2 gap-3 mb-3">
               <div>
                 <div className="text-xs text-jira-grey uppercase tracking-wide mb-1">Team</div>
                 <div className="text-sm font-semibold text-jira-dark">{savedConfig.teamName}</div>
@@ -229,76 +225,69 @@ export default function AdminPage() {
                 <div className="text-sm font-semibold text-jira-dark">{savedConfig.channelName}</div>
               </div>
             </div>
-          </div>
-
-          <button className="btn-green w-full mb-3" onClick={test} disabled={loading}>
-            {loading ? 'Sending…' : 'Send Test Message to Teams'}
-          </button>
-
-          {/* Custom message */}
-          <div className="divider" />
-          <div className="section-title">Send Custom Message</div>
-          <textarea
-            className="form-textarea w-full mb-2 h-20"
-            placeholder="Type your message here..."
-            value={customMsg}
-            onChange={e => setCustomMsg(e.target.value)}
-          />
-          <button
-            className={(!customMsg.trim() || loading) ? 'btn bg-jira-border text-jira-grey cursor-not-allowed w-full' : 'btn-blue w-full'}
-            onClick={sendCustomMessage}
-            disabled={!customMsg.trim() || loading}
-          >
-            {loading ? 'Sending…' : 'Send to Teams'}
-          </button>
-
-          {/* Notification Settings */}
-          <div className="divider" />
-          <div className="section-title">Notification Settings</div>
-          <p className="text-xs text-jira-grey mb-3">Choose which Jira events send a Teams notification.</p>
-          <div className="card space-y-3">
-            {[
-              { key: 'created',   label: 'Issue Created',   desc: 'Notify when a new issue is created' },
-              { key: 'updated',   label: 'Issue Updated',   desc: 'Notify when an issue is modified' },
-              { key: 'deleted',   label: 'Issue Deleted',   desc: 'Notify when an issue is deleted' },
-              { key: 'commented', label: 'Comment Added',   desc: 'Notify when a comment is added via bot' },
-            ].map(({ key, label, desc }) => (
-              <label key={key} className="flex items-start gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 w-4 h-4 accent-jira-blue"
-                  checked={!!notifSettings[key]}
-                  onChange={e => setNotifSettings(prev => ({ ...prev, [key]: e.target.checked }))}
-                />
-                <div>
-                  <div className="text-sm font-medium text-jira-dark">{label}</div>
-                  <div className="text-xs text-jira-grey">{desc}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 mt-2">
-            <button
-              className="btn-blue"
-              onClick={async () => {
-                await invoke('saveNotificationSettings', { settings: notifSettings }).catch(() => {});
-                setNotifSaved(true);
-                setTimeout(() => setNotifSaved(false), 2000);
-              }}
-            >
-              Save Notification Settings
+            <button className="btn-green w-full" onClick={test} disabled={loading}>
+              {loading ? 'Sending…' : 'Send Test Message to Teams'}
             </button>
-            {notifSaved && <span className="text-jira-green text-xs font-semibold">Saved!</span>}
-          </div>
+          </SectionCard>
+
+          <SectionCard title="Send Custom Message">
+            <textarea
+              className="form-textarea w-full mb-2 h-20"
+              placeholder="Type your message here..."
+              value={customMsg}
+              onChange={e => setCustomMsg(e.target.value)}
+            />
+            <button
+              className={(!customMsg.trim() || loading) ? 'btn bg-jira-border text-jira-grey cursor-not-allowed w-full' : 'btn-blue w-full'}
+              onClick={sendCustomMessage}
+              disabled={!customMsg.trim() || loading}
+            >
+              {loading ? 'Sending…' : 'Send to Teams'}
+            </button>
+          </SectionCard>
+
+          <SectionCard title="Notification Settings" description="Choose which Jira events send a Teams notification.">
+            <div className="card space-y-3">
+              {[
+                { key: 'created',   label: 'Issue Created',   desc: 'Notify when a new issue is created' },
+                { key: 'updated',   label: 'Issue Updated',   desc: 'Notify when an issue is modified' },
+                { key: 'deleted',   label: 'Issue Deleted',   desc: 'Notify when an issue is deleted' },
+                { key: 'commented', label: 'Comment Added',   desc: 'Notify when a comment is added via bot' },
+              ].map(({ key, label, desc }) => (
+                <label key={key} className="flex items-start gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 w-4 h-4 accent-jira-blue"
+                    checked={!!notifSettings[key]}
+                    onChange={e => { const checked = e.target.checked; setNotifSettings(prev => ({ ...prev, [key]: checked })); }}
+                  />
+                  <div>
+                    <div className="text-sm font-medium text-jira-dark">{label}</div>
+                    <div className="text-xs text-jira-grey">{desc}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                className="btn-blue"
+                onClick={async () => {
+                  await invoke('saveNotificationSettings', { settings: notifSettings }).catch(() => {});
+                  setNotifSaved(true);
+                  setTimeout(() => setNotifSaved(false), 2000);
+                }}
+              >
+                Save Notification Settings
+              </button>
+              {notifSaved && <span className="text-jira-green text-xs font-semibold">Saved!</span>}
+            </div>
+          </SectionCard>
 
           {/* Automation Webhook URL */}
           {webhookUrl && (
-            <>
-              <div className="divider" />
-              <div className="section-title">Automation Webhook URL</div>
+            <SectionCard title="Automation Webhook URL" description="Use this URL in Jira Automation rules.">
               <div className="card">
-                <div className="text-xs text-jira-grey mb-1">Use this URL in Jira Automation rules</div>
-                <div className="text-xs font-mono text-jira-dark break-all bg-white border border-jira-border rounded p-2 mt-1">
+                <div className="text-xs font-mono text-jira-dark break-all bg-white border border-jira-border rounded p-2">
                   {automationWebhookUrl}
                 </div>
               </div>
@@ -306,38 +295,33 @@ export default function AdminPage() {
                 In Jira Automation: Add action → Send web request → POST to this URL<br />
                 Body: <code className="bg-jira-light px-1 rounded">{"{'title':'{{issue.summary}}','issueKey':'{{issue.key}}'}"}</code>
               </p>
-            </>
+            </SectionCard>
           )}
 
-          {/* Debug */}
-          <div className="divider" />
-          <div className="flex gap-2 flex-wrap">
-            <button className="btn-blue text-xs" onClick={checkAuthStatus}>Check MS Auth</button>
-            <button className="btn-dark text-xs" onClick={checkBotDebug}>Bot Console</button>
-            <button className="btn-ghost text-xs" onClick={() => { setConsoleLogs([]); setShowConsole(false); }}>Clear</button>
-          </div>
-        </>
-      )}
+          <SectionCard title="Debug Tools">
+            <div className="flex gap-2 flex-wrap">
+              <button className="btn-blue text-xs" onClick={checkAuthStatus}>Check MS Auth</button>
+              <button className="btn-dark text-xs" onClick={checkBotDebug}>Bot Console</button>
+              <button className="btn-ghost text-xs" onClick={() => { setConsoleLogs([]); setShowConsole(false); }}>Clear</button>
+            </div>
 
-      {/* Debug Console */}
-      {showConsole && (
-        <>
-          <div className="divider" />
-          <div className="section-title">Debug Console</div>
-          <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs max-h-56 overflow-y-auto space-y-2">
-            {consoleLogs.length === 0 && <div className="text-gray-500">No activity yet.</div>}
-            {consoleLogs.map((entry, i) => (
-              <div key={i} className="border-b border-gray-700 pb-2">
-                <div className="text-gray-500 mb-1">── {entry.time} ──</div>
-                {entry.lines.map((line, j) => (
-                  <div key={j}>
-                    <span className={line.isErr ? 'text-red-400' : 'text-blue-400'}>{line.key}: </span>
-                    <span className={line.isErr ? 'text-red-300' : 'text-green-300'}>{line.val}</span>
+            {showConsole && (
+              <div className="bg-gray-900 rounded-lg p-3 font-mono text-xs max-h-56 overflow-y-auto space-y-2 mt-3">
+                {consoleLogs.length === 0 && <div className="text-gray-500">No activity yet.</div>}
+                {consoleLogs.map((entry, i) => (
+                  <div key={i} className="border-b border-gray-700 pb-2">
+                    <div className="text-gray-500 mb-1">── {entry.time} ──</div>
+                    {entry.lines.map((line, j) => (
+                      <div key={j}>
+                        <span className={line.isErr ? 'text-red-400' : 'text-blue-400'}>{line.key}: </span>
+                        <span className={line.isErr ? 'text-red-300' : 'text-green-300'}>{line.val}</span>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
-            ))}
-          </div>
+            )}
+          </SectionCard>
         </>
       )}
     </div>

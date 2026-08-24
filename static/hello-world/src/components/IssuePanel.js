@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
+import { SectionCard } from './common';
 
 // ── Issue Context Panel ───────────────────────────────────────────────────────
 export default function IssuePanel({ issueKey }) {
@@ -176,36 +177,35 @@ export default function IssuePanel({ issueKey }) {
           )}
 
           {mode === 'dm' && (
-            <div className="space-y-2">
+            <SectionCard title="Send a Teams DM">
               <label className="label">To (email)</label>
               <input className="form-input" value={toEmail} onChange={e => setToEmail(e.target.value)} placeholder="user@company.com" />
-              <p className="text-xs text-jira-grey">From: {currentUser?.email || '—'}</p>
-              <div className="flex gap-2">
+              <p className="text-xs text-jira-grey mt-1">From: {currentUser?.email || '—'}</p>
+              <div className="flex gap-2 mt-3">
                 <button className="btn-blue flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Sending…' : 'Send DM'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
 
           {mode === 'group' && (
-            <div className="space-y-2">
+            <SectionCard title="Create a Group Chat">
               <label className="label">Emails (comma-separated)</label>
               <textarea className="form-textarea w-full h-16" value={groupEmails} onChange={e => setGroupEmails(e.target.value)} placeholder="user1@co.com, user2@co.com" />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-3">
                 <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Creating…' : 'Create Group Chat'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
 
           {mode === 'channel' && (
-            <div className="space-y-2">
-              <p className="text-xs text-jira-grey">Posts to the channel configured in Teams Connector settings.</p>
+            <SectionCard title="Post to Channel" description="Posts to the channel configured in Teams Connector settings.">
               <div className="flex gap-2">
                 <button className="btn-green flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Posting…' : 'Post Now'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
         </div>
       )}
@@ -234,56 +234,56 @@ export default function IssuePanel({ issueKey }) {
           )}
 
           {mode === 'status' && (
-            <div className="space-y-2">
-              <div className="section-title">Select new status</div>
-              {transitions.length === 0 && <p className="text-xs text-jira-grey">Loading…</p>}
-              {transitions.map(t => (
-                <button key={t.id} className="btn-ghost w-full text-left" onClick={() => applyTransition(t.id, t.name)} disabled={submitting}>
-                  {t.name}
-                </button>
-              ))}
-              <button className="btn-ghost w-full" onClick={reset}>Cancel</button>
-            </div>
+            <SectionCard title="Select new status">
+              <div className="space-y-1.5">
+                {transitions.length === 0 && <p className="text-xs text-jira-grey">Loading…</p>}
+                {transitions.map(t => (
+                  <button key={t.id} className="btn-ghost w-full text-left" onClick={() => applyTransition(t.id, t.name)} disabled={submitting}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+              <button className="btn-ghost w-full mt-1.5" onClick={reset}>Cancel</button>
+            </SectionCard>
           )}
 
           {mode === 'comment' && (
-            <div className="space-y-2">
-              <label className="label">Comment</label>
+            <SectionCard title="Add Comment">
               <textarea className="form-textarea w-full h-20" value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Enter your comment…" />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-3">
                 <button className="btn-green flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Add Comment'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
 
           {mode === 'logtime' && (
-            <div className="space-y-2">
-              <label className="label">Time Spent</label>
+            <SectionCard title="Log Time">
+              <label className="label mt-0">Time Spent</label>
               <input className="form-input" value={timeSpent} onChange={e => setTimeSpent(e.target.value)} placeholder="e.g. 2h, 30m, 1h 30m" />
               <label className="label">Description (optional)</label>
               <textarea className="form-textarea w-full h-14" value={workDesc} onChange={e => setWorkDesc(e.target.value)} placeholder="What did you work on?" />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-3">
                 <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Logging…' : 'Log Time'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
 
           {mode === 'assign' && (
-            <div className="space-y-2">
-              <label className="label">Assign to (email)</label>
+            <SectionCard title="Assign Issue">
+              <label className="label mt-0">Assign to (email)</label>
               <input className="form-input" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} placeholder="user@company.com" />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-3">
                 <button className="btn-dark flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Assigning…' : 'Assign'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
 
           {mode === 'editfields' && (
-            <div className="space-y-2">
-              <label className="label">Priority</label>
+            <SectionCard title="Edit Fields">
+              <label className="label mt-0">Priority</label>
               <select className="form-select" value={editPriority} onChange={e => setEditPriority(e.target.value)}>
                 <option value="">— no change —</option>
                 {priorities.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -292,11 +292,11 @@ export default function IssuePanel({ issueKey }) {
               <input className="form-input" value={editLabels} onChange={e => setEditLabels(e.target.value)} placeholder="backend, urgent" />
               <label className="label">Due Date</label>
               <input type="date" className="form-input" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} />
-              <div className="flex gap-2">
+              <div className="flex gap-2 mt-3">
                 <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save Changes'}</button>
                 <button className="btn-ghost" onClick={reset}>Cancel</button>
               </div>
-            </div>
+            </SectionCard>
           )}
         </div>
       )}

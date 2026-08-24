@@ -213,16 +213,23 @@ export async function handleSubmitAction(body) {
     };
   }
 
+  // Shared by every step — if the connection lapses (token expired, user disconnected)
+  // partway through the wizard, this stops the step with a clear reconnect prompt instead
+  // of atlassianFetch() throwing NOT_CONNECTED uncaught into a raw 500.
+  async function requireConnectionOrPrompt() {
+    const auth = await getValidAtlassianAuth(teamsUserId);
+    if (auth?.cloudId) return auth;
+    const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
+    // task/message dialogs render plain text, not markdown — a [text](url) link here would
+    // show up as literal unparsed characters, so the bare URL goes out instead.
+    return { errorResponse: { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `🔗 Connect your Jira account first, then try again:\n\n${url}` } }) } };
+  }
+
   if (wizardStep === 'site') {
     console.log('[composeExtension] checking connection for teamsUserId:', teamsUserId, '| body.from:', JSON.stringify(body.from));
-    const auth = await getValidAtlassianAuth(teamsUserId);
-    console.log('[composeExtension] auth lookup result:', auth ? JSON.stringify({ hasCloudId: !!auth.cloudId, siteName: auth.siteName, expiresAt: auth.expiresAt }) : 'null');
-    if (!auth?.cloudId) {
-      const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
-      // task/message dialogs render plain text, not markdown — a [text](url) link here would
-      // show up as literal unparsed characters, so the bare URL goes out instead.
-      return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `🔗 Connect your Jira account first, then try again:\n\n${url}` } }) };
-    }
+    const auth = await requireConnectionOrPrompt();
+    console.log('[composeExtension] auth lookup result:', auth.errorResponse ? 'null' : JSON.stringify({ hasCloudId: !!auth.cloudId, siteName: auth.siteName, expiresAt: auth.expiresAt }));
+    if (auth.errorResponse) return auth.errorResponse;
     const projRes  = await atlassianFetch(teamsUserId, '/rest/api/3/project/search?maxResults=50&orderBy=name');
     const projData = await projRes.json();
     const projects = (projData.values || []).map(p => ({ key: p.key, name: p.name }));
@@ -230,6 +237,8 @@ export async function handleSubmitAction(body) {
   }
 
   if (wizardStep === 'project') {
+    const auth = await requireConnectionOrPrompt();
+    if (auth.errorResponse) return auth.errorResponse;
     const { projectKey, siteId, prefillText } = data;
     if (!projectKey) return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Please select a project.' } }) };
     const metaRes   = await atlassianFetch(teamsUserId, `/rest/api/3/issue/createmeta?projectKeys=${projectKey}&expand=projects.issuetypes`);
@@ -239,6 +248,8 @@ export async function handleSubmitAction(body) {
   }
 
   // wizardStep === 'details' — final step, actually creates the issue
+  const detailsAuth = await requireConnectionOrPrompt();
+  if (detailsAuth.errorResponse) return detailsAuth.errorResponse;
   const { projectKey, summary, issueType, description } = data;
   console.log('[composeExtension] submitAction — project:', projectKey, '| summary:', summary);
 
