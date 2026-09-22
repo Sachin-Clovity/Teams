@@ -47,8 +47,8 @@ export function issueCard(key, summary, type, status, priority, assignee, url, l
   };
 }
 
-// ── "Create a work item" wizard — Site → Project → Type/Summary/Description ──────────
-// Three separate steps (chained via task/continue responses), matching the official Jira
+// ── "Create a work item" wizard — Site → Project → Type → Details ────────────────────
+// Four separate steps (chained via task/continue responses), matching the official Jira
 // app's flow, rather than one flat form. Each step's Action.Submit carries forward
 // everything picked so far in its `data`, since Adaptive Card submits don't persist state.
 
@@ -85,19 +85,63 @@ export function buildCreateIssueProjectCard(prefillText, siteId, projects) {
   };
 }
 
-// Step 3: issue type, summary (prefilled from the message), description (prefilled too).
-export function buildCreateIssueDetailsCard(prefillText, siteId, projectKey, issueTypes) {
-  const choices = (issueTypes?.length ? issueTypes : ['Task', 'Bug', 'Story', 'Epic']).map(t => ({ title: t, value: t }));
+// Step 3: pick the work item type. Split out as its own step (rather than folded into
+// details) because Adaptive Cards are static once rendered — there's no way to show/hide
+// the parent-issue field or epic-link field reactively based on which type gets picked on
+// the same screen, so the type has to be chosen first, then the next step is built knowing
+// definitively whether it's a sub-task and what fields that specific type actually needs.
+export function buildCreateIssueTypeCard(prefillText, siteId, projectKey, issueTypes) {
+  const choices = (issueTypes?.length ? issueTypes : [{ id: '', name: 'Task' }])
+    .map(t => ({ title: t.name, value: t.id }));
   return {
     type: 'AdaptiveCard', version: '1.2',
     body: [
       { type: 'TextBlock', text: 'Create a work item', weight: 'Bolder', size: 'Medium' },
       { type: 'TextBlock', text: `Project: ${projectKey}`, isSubtle: true },
-      { type: 'Input.ChoiceSet', id: 'issueType', label: 'Select work item type', value: choices[0]?.value || 'Task', choices },
-      { type: 'Input.Text', id: 'summary', label: 'Summary', placeholder: 'Short description', value: prefillText.slice(0, 255), isRequired: true },
-      { type: 'Input.Text', id: 'description', label: 'Description', placeholder: 'Additional context', value: prefillText, isMultiline: true },
+      { type: 'Input.ChoiceSet', id: 'issueTypeId', label: 'Select work item type', value: choices[0]?.value || '', choices, isRequired: true },
     ],
-    actions: [{ type: 'Action.Submit', title: 'Create', data: { wizardStep: 'details', siteId, projectKey } }],
+    actions: [{ type: 'Action.Submit', title: 'Next', data: { wizardStep: 'type', prefillText, siteId, projectKey } }],
+  };
+}
+
+// Step 4: summary/description, plus whatever that specific work item type actually needs —
+// a required parent issue for sub-tasks, an optional epic link for everything else (when the
+// project has one), and any other required custom fields the project's screen scheme demands.
+// epicField / extraFields come from cross-referencing the type's live createmeta field list —
+// without rendering the required ones, issue creation would fail with a Jira error the user
+// has no way to act on from inside this card.
+export function buildCreateIssueDetailsCard(prefillText, siteId, projectKey, issueTypeId, issueTypeName, isSubtask, epicField, extraFields) {
+  const body = [
+    { type: 'TextBlock', text: 'Create a work item', weight: 'Bolder', size: 'Medium' },
+    { type: 'TextBlock', text: `Project: ${projectKey}  ·  Type: ${issueTypeName}`, isSubtle: true },
+  ];
+
+  if (isSubtask) {
+    body.push({ type: 'Input.Text', id: 'parentKey', label: 'Parent issue key', placeholder: 'e.g. PROJ-100', isRequired: true });
+  } else if (epicField) {
+    body.push({ type: 'Input.Text', id: 'epicKey', label: 'Epic (optional)', placeholder: 'e.g. PROJ-1' });
+  }
+
+  body.push(
+    { type: 'Input.Text', id: 'summary', label: 'Summary', placeholder: 'Short description', value: prefillText.slice(0, 255), isRequired: true },
+    { type: 'Input.Text', id: 'description', label: 'Description', placeholder: 'Additional context', value: prefillText, isMultiline: true },
+  );
+
+  (extraFields || []).forEach(f => {
+    body.push({ type: 'Input.Text', id: `custom_${f.id}`, label: f.name, isRequired: true });
+  });
+
+  return {
+    type: 'AdaptiveCard', version: '1.2',
+    body,
+    actions: [{
+      type: 'Action.Submit', title: 'Create',
+      data: {
+        wizardStep: 'details', siteId, projectKey, issueTypeId, issueTypeName, isSubtask,
+        epicFieldId: epicField?.id || '',
+        extraFieldIds: (extraFields || []).map(f => f.id).join(','),
+      },
+    }],
   };
 }
 
@@ -126,10 +170,24 @@ export function buildLogTimeCard(prefillText) {
   };
 }
 
+// A real "sign in" screen for the chat — one button that opens the browser, instead of a
+// plain markdown link buried in a text message (which reads as "copy this URL yourself").
+export function buildConnectCard(url, title, description, buttonTitle) {
+  return {
+    type: 'AdaptiveCard', version: '1.2',
+    body: [
+      { type: 'TextBlock', text: title || 'Connect your Jira account', weight: 'Bolder', size: 'Medium' },
+      { type: 'TextBlock', text: description || 'Sign in once so actions you take here are reported as you, not the bot.', wrap: true, isSubtle: true },
+    ],
+    actions: [{ type: 'Action.OpenUrl', title: buttonTitle || '🔗 Sign in to Jira', url }],
+  };
+}
+
 export function helpText() {
   return `**Jira Bot Commands:**\n\n` +
     `🔗 **connect** — Link your Jira account (needed before creating issues, so they're reported as you)\n` +
     `🔌 **disconnect** — Unlink your Jira account\n` +
+    `✅ **consent** — Get the admin-approval link your organization needs (once, org-wide)\n` +
     `📁 **projects** — List all Jira projects\n` +
     `🆕 **create** \`PROJECT\` \`summary\` — Create issue (auto type)\n` +
     `🐛 **bug** \`PROJECT\` \`summary\` — Create Bug\n` +

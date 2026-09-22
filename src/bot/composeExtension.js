@@ -1,6 +1,6 @@
 import api, { route } from '@forge/api';
 import { setBotDebugLog } from '../storage/kvsStore.js';
-import { issueCard, buildCreateIssueSiteCard, buildCreateIssueProjectCard, buildCreateIssueDetailsCard, buildCommentCard, buildLogTimeCard } from './cards.js';
+import { issueCard, buildCreateIssueSiteCard, buildCreateIssueProjectCard, buildCreateIssueTypeCard, buildCreateIssueDetailsCard, buildCommentCard, buildLogTimeCard, buildConnectCard } from './cards.js';
 import { sendBotReply } from '../graph/botReply.js';
 import { parseTimeToSeconds } from '../jira/utils.js';
 import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch } from '../jira/atlassianAuth.js';
@@ -221,8 +221,10 @@ export async function handleSubmitAction(body) {
     if (auth?.cloudId) return auth;
     const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
     // task/message dialogs render plain text, not markdown — a [text](url) link here would
-    // show up as literal unparsed characters, so the bare URL goes out instead.
-    return { errorResponse: { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `🔗 Connect your Jira account first, then try again:\n\n${url}` } }) } };
+    // show up as literal unparsed characters. task/continue with a card gives a real clickable
+    // "Sign in" button instead of a bare URL the user has to copy-paste.
+    const card = buildConnectCard(url, 'Connect your Jira account', 'Connect first, then try creating the issue again.');
+    return { errorResponse: { statusCode: 200, body: JSON.stringify({ task: { type: 'continue', value: { title: 'Connect your Jira account', height: 'small', width: 'medium', card: { contentType: 'application/vnd.microsoft.card.adaptive', content: card } } } }) } };
   }
 
   if (wizardStep === 'site') {
@@ -243,24 +245,57 @@ export async function handleSubmitAction(body) {
     if (!projectKey) return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Please select a project.' } }) };
     const metaRes   = await atlassianFetch(teamsUserId, `/rest/api/3/issue/createmeta?projectKeys=${projectKey}&expand=projects.issuetypes`);
     const metaData  = await metaRes.json();
-    const issueTypes = (metaData.projects?.[0]?.issuetypes || []).map(t => t.name);
-    return continueWith(buildCreateIssueDetailsCard(prefillText || '', siteId, projectKey, issueTypes));
+    const issueTypes = (metaData.projects?.[0]?.issuetypes || []).map(t => ({ id: t.id, name: t.name }));
+    return continueWith(buildCreateIssueTypeCard(prefillText || '', siteId, projectKey, issueTypes));
+  }
+
+  // Fields every type always needs, or that we ask for separately (summary/description) or
+  // handle specially (parent/epic) — everything else required gets rendered as a generic field.
+  const HANDLED_FIELD_KEYS = new Set(['summary', 'description', 'project', 'issuetype', 'reporter', 'parent']);
+
+  if (wizardStep === 'type') {
+    const auth = await requireConnectionOrPrompt();
+    if (auth.errorResponse) return auth.errorResponse;
+    const { projectKey, siteId, prefillText, issueTypeId } = data;
+    if (!issueTypeId) return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Please select a work item type.' } }) };
+
+    const metaRes  = await atlassianFetch(teamsUserId, `/rest/api/3/issue/createmeta?projectKeys=${projectKey}&issuetypeIds=${issueTypeId}&expand=projects.issuetypes.fields`);
+    const metaData = await metaRes.json();
+    const issuetype = metaData.projects?.[0]?.issuetypes?.[0];
+    if (!issuetype) return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Could not load that work item type. Please try again.' } }) };
+
+    const fieldList  = Object.values(issuetype.fields || {});
+    // Classic (company-managed) projects expose a distinct "Epic Link" custom field; team-managed
+    // projects use the plain "parent" field for the same purpose (and require it for sub-tasks).
+    const epicField  = fieldList.find(f => f.schema?.custom?.includes('gh-epic-link')) || fieldList.find(f => f.key === 'parent');
+    const extraFields = fieldList
+      .filter(f => f.required && !HANDLED_FIELD_KEYS.has(f.key) && f.key !== epicField?.key)
+      .slice(0, 5) // cap so the card stays a reasonable size; log the rest instead of hiding the truncation silently
+      .map(f => ({ id: f.key, name: f.name }));
+    if (fieldList.filter(f => f.required && !HANDLED_FIELD_KEYS.has(f.key) && f.key !== epicField?.key).length > 5) {
+      console.log('[composeExtension] more than 5 extra required fields for', issuetype.name, '— only rendering the first 5');
+    }
+
+    return continueWith(buildCreateIssueDetailsCard(prefillText || '', siteId, projectKey, issuetype.id, issuetype.name, !!issuetype.subtask, issuetype.subtask ? null : epicField, extraFields));
   }
 
   // wizardStep === 'details' — final step, actually creates the issue
   const detailsAuth = await requireConnectionOrPrompt();
   if (detailsAuth.errorResponse) return detailsAuth.errorResponse;
-  const { projectKey, summary, issueType, description } = data;
+  const { projectKey, summary, description, issueTypeId, issueTypeName, isSubtask, epicFieldId, extraFieldIds, parentKey, epicKey } = data;
   console.log('[composeExtension] submitAction — project:', projectKey, '| summary:', summary);
 
   if (!projectKey || !summary) {
     return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Project and Summary are required.' } }) };
   }
+  if (isSubtask && !parentKey?.trim()) {
+    return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: '❌ Sub-tasks need a parent issue key.' } }) };
+  }
 
   const fields = {
     project:   { key: projectKey.trim().toUpperCase() },
     summary:   summary.trim(),
-    issuetype: { name: issueType || 'Task' },
+    issuetype: issueTypeId ? { id: issueTypeId } : { name: issueTypeName || 'Task' },
   };
   if (description?.trim()) {
     fields.description = {
@@ -268,6 +303,17 @@ export async function handleSubmitAction(body) {
       content: [{ type: 'paragraph', content: [{ type: 'text', text: description.trim() }] }],
     };
   }
+  if (isSubtask) {
+    fields.parent = { key: parentKey.trim().toUpperCase() };
+  } else if (epicFieldId && epicKey?.trim()) {
+    // "parent" (team-managed) takes an issue reference; the classic Epic Link custom field
+    // takes a plain issue key string — same user input, two different shapes on the wire.
+    fields[epicFieldId] = epicFieldId === 'parent' ? { key: epicKey.trim().toUpperCase() } : epicKey.trim().toUpperCase();
+  }
+  (extraFieldIds ? extraFieldIds.split(',').filter(Boolean) : []).forEach(fieldId => {
+    const value = data[`custom_${fieldId}`];
+    if (value?.trim()) fields[fieldId] = value.trim();
+  });
 
   const createRes = await atlassianFetch(teamsUserId, '/rest/api/3/issue', {
     method: 'POST',
@@ -284,7 +330,7 @@ export async function handleSubmitAction(body) {
     // can be invoked on messages in chats the bot was never added to, which Bot Framework refuses
     // to post into (403 BotNotInConversationRoster). It fails silently, so the link below is a
     // guaranteed fallback the user can always reach the issue from either way.
-    await sendBotReply(body, [issueCard(created.key, summary.trim(), issueType || 'Task', 'To Do', 'None', 'Unassigned', issueUrl, '✅ Created')]);
+    await sendBotReply(body, [issueCard(created.key, summary.trim(), issueTypeName || 'Task', 'To Do', 'None', 'Unassigned', issueUrl, '✅ Created')]);
     return { statusCode: 200, body: JSON.stringify({ task: { type: 'message', value: `✅ ${created.key} created\n\n${issueUrl}` } }) };
   }
   const errDetail = JSON.stringify(created.errors || created.errorMessages || created);

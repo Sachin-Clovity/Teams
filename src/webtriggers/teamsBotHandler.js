@@ -1,4 +1,4 @@
-import { setBotDebugLog } from '../storage/kvsStore.js';
+import { setBotDebugLog, getMsTenantId, saveMsTenantId } from '../storage/kvsStore.js';
 import { handleQueryLink, handleFetchTask, handleSubmitAction, handleQuery } from '../bot/composeExtension.js';
 import { handleBotMessage } from '../bot/commands.js';
 import { handleTaskFetch, handleTaskSubmit } from '../bot/cardActions.js';
@@ -10,19 +10,35 @@ export async function teamsBotHandler(req) {
     console.log('[teamsBotHandler] ─── INCOMING REQUEST ───');
     console.log('[teamsBotHandler] req.body exists:', !!req.body);
 
-    // LOG-ONLY for now — not yet blocking requests. This confirms real Teams traffic actually
-    // verifies correctly before flipping it to reject. Right now this endpoint trusts
-    // body.from.aadObjectId with no proof the request came from Microsoft at all; this check
-    // is step one of closing that gap without risking taking the bot offline on a wrong
-    // assumption about how Forge exposes request headers.
+    // Now enforcing — real Teams traffic (messages, wizard steps, task fetch/submit) logged
+    // VALID consistently with no false negatives, so this endpoint no longer trusts
+    // body.from.aadObjectId on its own; a request that doesn't carry a genuine Bot Framework
+    // JWT is rejected before any command/resolver runs.
     const authCheck = await verifyBotFrameworkRequest(req.headers);
     console.log('[teamsBotHandler] Bot Framework auth check:', authCheck.valid ? 'VALID' : `INVALID (${authCheck.reason})`);
+    if (!authCheck.valid) {
+      console.log('[teamsBotHandler] REJECTING unverified request:', authCheck.reason);
+      return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
 
     const body = req.body ? JSON.parse(req.body) : {};
     console.log('[teamsBotHandler] type:', body.type, '| name:', body.name);
     console.log('[teamsBotHandler] from:', body.from?.name, '| channel:', body.channelId);
     console.log('[teamsBotHandler] serviceUrl:', body.serviceUrl);
     console.log('[teamsBotHandler] text:', body.text);
+
+    // Learn this installation's Microsoft tenant from real traffic, once — every activity
+    // carries conversation.tenantId, so whichever company's Teams sends the very first message
+    // becomes the tenant all our Graph calls (team/channel picker, personal DMs) use, instead
+    // of the single tenant hardcoded in the MS_TENANT_ID environment variable.
+    const incomingTenantId = body.conversation?.tenantId;
+    if (incomingTenantId) {
+      const known = await getMsTenantId();
+      if (known !== incomingTenantId) {
+        console.log('[teamsBotHandler] learning ms tenant id:', incomingTenantId, known ? `(was ${known})` : '(first time)');
+        await saveMsTenantId(incomingTenantId);
+      }
+    }
 
     // Save debug info to storage (visible via UI — works on AGC where logs are restricted)
     await setBotDebugLog({

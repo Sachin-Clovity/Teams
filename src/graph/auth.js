@@ -4,10 +4,13 @@
 
 const TOKEN_REFRESH_BUFFER_MS = 30_000;
 
-let appTokenCache = { token: null, expiresAt: 0 };
+// Keyed by tenant id ('' for the default/home tenant) — a second company's installation
+// requests Graph tokens from its own tenant authority, so its cached token must never be
+// handed back to a request meant for a different tenant.
+let appTokenCache = {};
 let botTokenCache = { token: null, expiresAt: 0 };
 
-async function fetchClientCredentialsToken(scope) {
+async function fetchClientCredentialsToken(scope, tenantId) {
   const { fetch } = await import('@forge/api');
   const body = [
     `client_id=${encodeURIComponent(process.env.MS_CLIENT_ID)}`,
@@ -17,20 +20,26 @@ async function fetchClientCredentialsToken(scope) {
   ].join('&');
 
   const res = await fetch(
-    `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`,
+    `https://login.microsoftonline.com/${tenantId || process.env.MS_TENANT_ID}/oauth2/v2.0/token`,
     { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body }
   );
   return { status: res.status, data: await res.json() };
 }
 
-export async function getAppToken() {
+// tenantId: the Microsoft 365 tenant to call Graph as. Application permissions are consented
+// per-tenant, so a token from our home tenant's authority can only see our home tenant's
+// directory — pass the calling installation's own learned tenant id (see kvsStore.getMsTenantId)
+// to reach that company's Teams/users instead. Omit to use the MS_TENANT_ID env var (Clovity).
+export async function getAppToken(tenantId) {
+  const cacheKey = tenantId || '';
   const now = Date.now();
-  if (appTokenCache.token && appTokenCache.expiresAt > now + TOKEN_REFRESH_BUFFER_MS) {
-    return appTokenCache.token;
+  const cached = appTokenCache[cacheKey];
+  if (cached?.token && cached.expiresAt > now + TOKEN_REFRESH_BUFFER_MS) {
+    return cached.token;
   }
-  const { data } = await fetchClientCredentialsToken('https://graph.microsoft.com/.default');
+  const { data } = await fetchClientCredentialsToken('https://graph.microsoft.com/.default', tenantId);
   if (!data.access_token) throw new Error(`Token error: ${JSON.stringify(data)}`);
-  appTokenCache = { token: data.access_token, expiresAt: now + (data.expires_in ? data.expires_in * 1000 : 3_600_000) };
+  appTokenCache[cacheKey] = { token: data.access_token, expiresAt: now + (data.expires_in ? data.expires_in * 1000 : 3_600_000) };
   return data.access_token;
 }
 

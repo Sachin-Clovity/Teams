@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
-import { SectionCard } from './common';
+import { SectionCard, Button, useToast, Skeleton, EmptyState, formatError } from './common';
 
 // ── Issue Context Panel ───────────────────────────────────────────────────────
 export default function IssuePanel({ issueKey }) {
@@ -23,7 +23,7 @@ export default function IssuePanel({ issueKey }) {
   const [loading,     setLoading]     = useState(true);
   const [submitting,  setSubmitting]  = useState(false);
   const [err,         setErr]         = useState('');
-  const [msg,         setMsg]         = useState('');
+  const showToast = useToast();
 
   useEffect(() => {
     if (!issueKey) return;
@@ -36,10 +36,10 @@ export default function IssuePanel({ issueKey }) {
       setToEmail(issueData.assignee?.email || '');
       setGroupEmails([issueData.assignee?.email, issueData.reporter?.email].filter(Boolean).join(', '));
       setLoading(false);
-    }).catch(e => { setErr(e.message || 'Failed to load issue.'); setLoading(false); });
+    }).catch(e => { setErr(formatError(e, 'Failed to load issue.')); setLoading(false); });
   }, [issueKey]);
 
-  function reset() { setMode(null); setErr(''); setMsg(''); }
+  function reset() { setMode(null); setErr(''); }
 
   async function loadTransitions() {
     const res = await invoke('getIssueTransitions', { issueKey });
@@ -66,32 +66,32 @@ export default function IssuePanel({ issueKey }) {
   }
 
   async function submit() {
-    setErr(''); setMsg(''); setSubmitting(true);
+    setErr(''); setSubmitting(true);
     try {
       if (mode === 'dm') {
         if (!toEmail.trim()) { setErr('Enter a recipient email.'); return; }
         await invoke('startDM', { fromEmail: currentUser.email, toEmail: toEmail.trim(), issueKey, issueSummary: issue.summary });
-        setMsg(`DM sent to ${toEmail.trim()}`); setMode(null);
+        showToast(`DM sent to ${toEmail.trim()}`); setMode(null);
       } else if (mode === 'group') {
         const emails = groupEmails.split(',').map(e => e.trim()).filter(Boolean);
         if (emails.length < 2) { setErr('Enter at least 2 emails.'); return; }
         await invoke('startGroupChat', { emails, issueKey, issueSummary: issue.summary });
-        setMsg(`Group chat created with ${emails.length} members.`); setMode(null);
+        showToast(`Group chat created with ${emails.length} members.`); setMode(null);
       } else if (mode === 'channel') {
         await invoke('postToChannelManual', { issueKey, issueSummary: issue.summary });
-        setMsg('Posted to Teams channel.'); setMode(null);
+        showToast('Posted to Teams channel.'); setMode(null);
       } else if (mode === 'comment') {
         if (!commentText.trim()) { setErr('Enter a comment.'); return; }
         await invoke('addIssueComment', { issueKey, commentText: commentText.trim() });
-        setMsg('Comment added.'); setCommentText(''); setMode(null);
+        showToast('Comment added.'); setCommentText(''); setMode(null);
       } else if (mode === 'logtime') {
         if (!timeSpent.trim()) { setErr('Enter time (e.g. 2h, 30m).'); return; }
         await invoke('logIssueWork', { issueKey, timeSpent: timeSpent.trim(), description: workDesc });
-        setMsg(`Logged ${timeSpent} on ${issueKey}.`); setTimeSpent(''); setWorkDesc(''); setMode(null);
+        showToast(`Logged ${timeSpent} on ${issueKey}.`); setTimeSpent(''); setWorkDesc(''); setMode(null);
       } else if (mode === 'assign') {
         if (!assignEmail.trim()) { setErr('Enter an email address.'); return; }
         const res = await invoke('assignIssue', { issueKey, email: assignEmail.trim() });
-        setMsg(`Assigned to ${res.displayName}.`);
+        showToast(`Assigned to ${res.displayName}.`);
         setIssue(prev => ({ ...prev, assignee: { name: res.displayName, email: assignEmail.trim() } }));
         setMode(null);
       } else if (mode === 'editfields') {
@@ -100,22 +100,22 @@ export default function IssuePanel({ issueKey }) {
         if (editDueDate) payload.dueDate = editDueDate;
         await invoke('updateIssueFields', payload);
         const priorityName = priorities.find(p => p.id === editPriority)?.name;
-        setMsg('Issue fields updated.');
+        showToast('Issue fields updated.');
         setIssue(prev => ({ ...prev, priority: priorityName || prev.priority, labels: payload.labels, dueDate: editDueDate || prev.dueDate }));
         setMode(null);
       }
-    } catch (e) { setErr(e.message || 'Failed.'); }
+    } catch (e) { setErr(formatError(e, 'Failed.')); }
     finally { setSubmitting(false); }
   }
 
   async function applyTransition(id, name) {
-    setErr(''); setMsg(''); setSubmitting(true);
+    setErr(''); setSubmitting(true);
     try {
       await invoke('transitionIssue', { issueKey, transitionId: id });
-      setMsg(`Status updated to "${name}".`);
+      showToast(`Status updated to "${name}".`);
       setIssue(prev => ({ ...prev, status: name }));
       setMode(null);
-    } catch (e) { setErr(e.message || 'Transition failed.'); }
+    } catch (e) { setErr(formatError(e, 'Transition failed.')); }
     finally { setSubmitting(false); }
   }
 
@@ -126,7 +126,24 @@ export default function IssuePanel({ issueKey }) {
 
   const tabClass = active => `tab-btn ${active ? 'border-jira-blue text-jira-blue' : 'border-transparent text-jira-grey hover:text-jira-dark'}`;
 
-  if (loading) return <div className="p-4 text-jira-grey text-sm">Loading…</div>;
+  if (loading) {
+    return (
+      <div className="p-3" aria-busy="true" aria-label="Loading">
+        <div className="card mb-3">
+          <Skeleton className="h-4 w-20 mb-2" />
+          <Skeleton className="h-3 w-full mb-1" />
+          <Skeleton className="h-3 w-2/3 mb-2" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <div className="flex gap-3 mb-3">
+          <Skeleton className="h-6 w-14" /><Skeleton className="h-6 w-14" /><Skeleton className="h-6 w-14" />
+        </div>
+        <Skeleton className="h-8 w-full mb-2" />
+        <Skeleton className="h-8 w-full mb-2" />
+        <Skeleton className="h-8 w-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-3 font-sans text-sm">
@@ -157,22 +174,21 @@ export default function IssuePanel({ issueKey }) {
       </div>
 
       {err && <div className="alert-err">{err}</div>}
-      {msg && <div className="alert-ok">{msg}</div>}
 
       {/* ── TEAMS TAB ── */}
       {tab === 'teams' && (
         <div className="space-y-2">
           {!mode && (
             <>
-              <button className="btn-blue w-full" onClick={() => { setMode('dm'); reset(); }}>
+              <Button className="w-full" onClick={() => { setMode('dm'); reset(); }}>
                 DM {issue?.assignee ? issue.assignee.name : 'Someone'}
-              </button>
-              <button className="btn-purple w-full" onClick={() => { setMode('group'); reset(); }}>
+              </Button>
+              <Button variant="purple" className="w-full" onClick={() => { setMode('group'); reset(); }}>
                 Group Chat
-              </button>
-              <button className="btn-green w-full" onClick={() => { setMode('channel'); reset(); }}>
+              </Button>
+              <Button variant="success" className="w-full" onClick={() => { setMode('channel'); reset(); }}>
                 Post to Channel
-              </button>
+              </Button>
             </>
           )}
 
@@ -182,8 +198,8 @@ export default function IssuePanel({ issueKey }) {
               <input className="form-input" value={toEmail} onChange={e => setToEmail(e.target.value)} placeholder="user@company.com" />
               <p className="text-xs text-jira-grey mt-1">From: {currentUser?.email || '—'}</p>
               <div className="flex gap-2 mt-3">
-                <button className="btn-blue flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Sending…' : 'Send DM'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button className="flex-1" onClick={submit} loading={submitting}>Send DM</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -193,8 +209,8 @@ export default function IssuePanel({ issueKey }) {
               <label className="label">Emails (comma-separated)</label>
               <textarea className="form-textarea w-full h-16" value={groupEmails} onChange={e => setGroupEmails(e.target.value)} placeholder="user1@co.com, user2@co.com" />
               <div className="flex gap-2 mt-3">
-                <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Creating…' : 'Create Group Chat'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="purple" className="flex-1" onClick={submit} loading={submitting}>Create Group Chat</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -202,8 +218,8 @@ export default function IssuePanel({ issueKey }) {
           {mode === 'channel' && (
             <SectionCard title="Post to Channel" description="Posts to the channel configured in Teams Connector settings.">
               <div className="flex gap-2">
-                <button className="btn-green flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Posting…' : 'Post Now'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="success" className="flex-1" onClick={submit} loading={submitting}>Post Now</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -215,35 +231,40 @@ export default function IssuePanel({ issueKey }) {
         <div className="space-y-2">
           {!mode && (
             <>
-              <button className="btn-blue w-full" onClick={() => { setMode('status'); setErr(''); setMsg(''); loadTransitions(); }}>
+              <Button className="w-full" onClick={() => { setMode('status'); setErr(''); loadTransitions(); }}>
                 Update Status
-              </button>
-              <button className="btn-green w-full" onClick={() => { setMode('comment'); reset(); }}>
+              </Button>
+              <Button variant="success" className="w-full" onClick={() => { setMode('comment'); reset(); }}>
                 Add Comment
-              </button>
-              <button className="btn-purple w-full" onClick={() => { setMode('logtime'); reset(); }}>
+              </Button>
+              <Button variant="purple" className="w-full" onClick={() => { setMode('logtime'); reset(); }}>
                 Log Time
-              </button>
-              <button className="btn-dark w-full" onClick={() => { setMode('assign'); reset(); }}>
+              </Button>
+              <Button variant="dark" className="w-full" onClick={() => { setMode('assign'); reset(); }}>
                 Assign Issue
-              </button>
-              <button className="btn-purple w-full" onClick={() => { setMode('editfields'); reset(); loadEditFields(); }}>
+              </Button>
+              <Button variant="purple" className="w-full" onClick={() => { setMode('editfields'); reset(); loadEditFields(); }}>
                 Edit Fields
-              </button>
+              </Button>
             </>
           )}
 
           {mode === 'status' && (
             <SectionCard title="Select new status">
               <div className="space-y-1.5">
-                {transitions.length === 0 && <p className="text-xs text-jira-grey">Loading…</p>}
+                {transitions.length === 0 && (
+                  <>
+                    <Skeleton className="h-8 w-full" />
+                    <Skeleton className="h-8 w-full" />
+                  </>
+                )}
                 {transitions.map(t => (
-                  <button key={t.id} className="btn-ghost w-full text-left" onClick={() => applyTransition(t.id, t.name)} disabled={submitting}>
+                  <Button key={t.id} variant="ghost" className="w-full text-left" onClick={() => applyTransition(t.id, t.name)} loading={submitting}>
                     {t.name}
-                  </button>
+                  </Button>
                 ))}
               </div>
-              <button className="btn-ghost w-full mt-1.5" onClick={reset}>Cancel</button>
+              <Button variant="ghost" className="w-full mt-1.5" onClick={reset}>Cancel</Button>
             </SectionCard>
           )}
 
@@ -251,8 +272,8 @@ export default function IssuePanel({ issueKey }) {
             <SectionCard title="Add Comment">
               <textarea className="form-textarea w-full h-20" value={commentText} onChange={e => setCommentText(e.target.value)} placeholder="Enter your comment…" />
               <div className="flex gap-2 mt-3">
-                <button className="btn-green flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Add Comment'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="success" className="flex-1" onClick={submit} loading={submitting}>Add Comment</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -264,8 +285,8 @@ export default function IssuePanel({ issueKey }) {
               <label className="label">Description (optional)</label>
               <textarea className="form-textarea w-full h-14" value={workDesc} onChange={e => setWorkDesc(e.target.value)} placeholder="What did you work on?" />
               <div className="flex gap-2 mt-3">
-                <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Logging…' : 'Log Time'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="purple" className="flex-1" onClick={submit} loading={submitting}>Log Time</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -275,8 +296,8 @@ export default function IssuePanel({ issueKey }) {
               <label className="label mt-0">Assign to (email)</label>
               <input className="form-input" value={assignEmail} onChange={e => setAssignEmail(e.target.value)} placeholder="user@company.com" />
               <div className="flex gap-2 mt-3">
-                <button className="btn-dark flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Assigning…' : 'Assign'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="dark" className="flex-1" onClick={submit} loading={submitting}>Assign</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -293,8 +314,8 @@ export default function IssuePanel({ issueKey }) {
               <label className="label">Due Date</label>
               <input type="date" className="form-input" value={editDueDate} onChange={e => setEditDueDate(e.target.value)} />
               <div className="flex gap-2 mt-3">
-                <button className="btn-purple flex-1" onClick={submit} disabled={submitting}>{submitting ? 'Saving…' : 'Save Changes'}</button>
-                <button className="btn-ghost" onClick={reset}>Cancel</button>
+                <Button variant="purple" className="flex-1" onClick={submit} loading={submitting}>Save Changes</Button>
+                <Button variant="ghost" onClick={reset}>Cancel</Button>
               </div>
             </SectionCard>
           )}
@@ -304,8 +325,13 @@ export default function IssuePanel({ issueKey }) {
       {/* ── ACTIVITY TAB ── */}
       {tab === 'activity' && (
         <div>
-          {activity === null && <p className="text-xs text-jira-grey">Loading activity…</p>}
-          {activity !== null && activity.length === 0 && <p className="text-xs text-jira-grey">No comments yet.</p>}
+          {activity === null && (
+            <>
+              <Skeleton className="h-10 w-full mb-2" />
+              <Skeleton className="h-10 w-full" />
+            </>
+          )}
+          {activity !== null && activity.length === 0 && <EmptyState icon="💬" title="No comments yet" />}
           {activity !== null && activity.map(c => (
             <div key={c.id} className="border-b border-jira-border pb-3 mb-3 last:border-0">
               <div className="flex justify-between items-center mb-1">
@@ -316,7 +342,7 @@ export default function IssuePanel({ issueKey }) {
             </div>
           ))}
           {activity !== null && activity.length > 0 && (
-            <button className="btn-ghost text-xs mt-1" onClick={loadActivity}>Refresh</button>
+            <Button variant="ghost" className="text-xs mt-1" onClick={loadActivity}>Refresh</Button>
           )}
         </div>
       )}

@@ -1,5 +1,5 @@
 import api, { route } from '@forge/api';
-import { getGlobalConfig } from '../storage/kvsStore.js';
+import { getGlobalConfig, getMsTenantId } from '../storage/kvsStore.js';
 import { getAadUserId, postChatMessage } from '../graph/chat.js';
 import { graphPost } from '../graph/client.js';
 import { parseTimeToSeconds, extractTextFromADF } from '../jira/utils.js';
@@ -118,23 +118,25 @@ export function registerIssuePanelResolvers(resolver) {
   // Creates a 1:1 Teams DM between fromEmail and toEmail, posts an issue link
   resolver.define('startDM', async ({ payload }) => {
     const { fromEmail, toEmail, issueKey, issueSummary } = payload;
-    const [fromId, toId] = await Promise.all([getAadUserId(fromEmail), getAadUserId(toEmail)]);
+    const tenantId = await getMsTenantId();
+    const [fromId, toId] = await Promise.all([getAadUserId(fromEmail, tenantId), getAadUserId(toEmail, tenantId)]);
     const chat = await graphPost('/v1.0/chats', {
       chatType: 'oneOnOne',
       members: [
         { '@odata.type': '#microsoft.graph.aadUserConversationMember', roles: ['owner'], 'user@odata.bind': `https://graph.microsoft.com/v1.0/users/${fromId}` },
         { '@odata.type': '#microsoft.graph.aadUserConversationMember', roles: ['owner'], 'user@odata.bind': `https://graph.microsoft.com/v1.0/users/${toId}` },
       ],
-    });
+    }, tenantId);
     const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey}`;
-    await postChatMessage(chat.id, `<b>Jira: <a href="${issueUrl}">${issueKey}</a></b> — ${issueSummary}`);
+    await postChatMessage(chat.id, `<b>Jira: <a href="${issueUrl}">${issueKey}</a></b> — ${issueSummary}`, tenantId);
     return { success: true };
   });
 
   // Creates a named group Teams chat with all provided emails, posts an issue link
   resolver.define('startGroupChat', async ({ payload }) => {
     const { emails, issueKey, issueSummary } = payload;
-    const userIds = await Promise.all(emails.map(e => getAadUserId(e.trim())));
+    const tenantId = await getMsTenantId();
+    const userIds = await Promise.all(emails.map(e => getAadUserId(e.trim(), tenantId)));
     const chat = await graphPost('/v1.0/chats', {
       chatType: 'group',
       topic: `${issueKey}: ${issueSummary.slice(0, 60)}`,
@@ -143,9 +145,9 @@ export function registerIssuePanelResolvers(resolver) {
         roles: ['owner'],
         'user@odata.bind': `https://graph.microsoft.com/v1.0/users/${id}`,
       })),
-    });
+    }, tenantId);
     const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey}`;
-    await postChatMessage(chat.id, `<b>Jira: <a href="${issueUrl}">${issueKey}</a></b> — ${issueSummary}`);
+    await postChatMessage(chat.id, `<b>Jira: <a href="${issueUrl}">${issueKey}</a></b> — ${issueSummary}`, tenantId);
     return { success: true };
   });
 
@@ -154,10 +156,11 @@ export function registerIssuePanelResolvers(resolver) {
     const { issueKey, issueSummary } = payload;
     const config = await getGlobalConfig();
     if (!config?.teamId || !config?.channelId) throw new Error('No channel configured. Go to Teams Connector settings first.');
+    const tenantId = await getMsTenantId();
     const issueUrl = `${process.env.JIRA_BASE_URL}/browse/${issueKey}`;
     await graphPost(`/v1.0/teams/${config.teamId}/channels/${config.channelId}/messages`, {
       body: { contentType: 'html', content: `<b>Jira: <a href="${issueUrl}">${issueKey}</a></b> — ${issueSummary}` },
-    });
+    }, tenantId);
     return { success: true };
   });
 }

@@ -1,5 +1,6 @@
 import { getValidAtlassianAuth, buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, atlassianFetch } from '../jira/atlassianAuth.js';
 import { getIssueNotifySub, saveIssueNotifySub } from '../storage/kvsStore.js';
+import { buildConnectCard } from './cards.js';
 
 function taskContinue(title, card, height = 'medium', width = 'medium') {
   return {
@@ -22,7 +23,7 @@ async function checkConnection(teamsUserId) {
   const auth = await getValidAtlassianAuth(teamsUserId);
   if (auth?.cloudId) return { auth };
   const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
-  return { response: taskMessage(`Connect your Jira account first, then try again:\n\n${url}`) };
+  return { response: taskContinue('Connect your Jira account', buildConnectCard(url, 'Connect your Jira account', 'Connect first, then try this action again.'), 'small') };
 }
 
 // ── task/fetch — builds the dialog shown when Comment / Edit / Notify is clicked on an issueCard() ──

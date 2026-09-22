@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
-import { PageHeader, SectionCard } from './common';
+import { PageHeader, SectionCard, Button, useToast, PageSkeleton, formatError } from './common';
 
 const NOTIFICATION_FIELDS = [
   { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
@@ -17,14 +17,19 @@ export default function ProjectSettingsPage({ projectKey }) {
   const [teamId,          setTeamId]          = useState('');
   const [channelId,       setChannelId]       = useState('');
   const [webhookUrl,      setWebhookUrl]      = useState('');
-  const [meta,            setMeta]            = useState({ issueTypes: [], statuses: [], priorities: [] });
+  const [meta,            setMeta]            = useState({ issueTypes: [], statuses: [], priorities: [], components: [] });
   const [issueTypeFilter, setIssueTypeFilter] = useState([]);
   const [statusFilter,    setStatusFilter]    = useState([]);
   const [priorityFilter,  setPriorityFilter]  = useState([]);
+  const [labelFilterText, setLabelFilterText] = useState('');
+  const [labelMatch,      setLabelMatch]      = useState('any');
+  const [componentFilter, setComponentFilter] = useState([]);
+  const [componentMatch,  setComponentMatch]  = useState('any');
   const [fields,          setFields]          = useState(['status', 'priority', 'issueType', 'assignee', 'reporter']);
   const [loading,         setLoading]         = useState(true);
+  const [saving,          setSaving]          = useState(false);
   const [err,             setErr]             = useState('');
-  const [msg,             setMsg]             = useState('');
+  const showToast = useToast();
 
   useEffect(() => {
     if (!projectKey) return;
@@ -40,21 +45,25 @@ export default function ProjectSettingsPage({ projectKey }) {
         setIssueTypeFilter(c.filters?.issueTypes || []);
         setStatusFilter(c.filters?.statuses || []);
         setPriorityFilter(c.filters?.priorities || []);
+        setLabelFilterText((c.filters?.labels || []).join(', '));
+        setLabelMatch(c.filters?.labelMatch === 'all' ? 'all' : 'any');
+        setComponentFilter(c.filters?.components || []);
+        setComponentMatch(c.filters?.componentMatch === 'all' ? 'all' : 'any');
         if (c.fields?.length) setFields(c.fields);
       }
       setLoading(false);
-    }).catch(e => { setErr(e.message || 'Failed to load.'); setLoading(false); });
+    }).catch(e => { setErr(formatError(e, 'Failed to load.')); setLoading(false); });
   }, [projectKey]);
 
   async function loadTeams() {
-    const res = await invoke('getTeams').catch(e => { setErr(e.message); return null; });
+    const res = await invoke('getTeams').catch(e => { setErr(formatError(e)); return null; });
     if (res) setTeams(res.teams || []);
   }
 
   async function onTeamChange(id) {
     setTeamId(id); setChannelId(''); setChannels([]);
     if (!id) return;
-    const res = await invoke('getChannels', { teamId: id }).catch(e => { setErr(e.message); return null; });
+    const res = await invoke('getChannels', { teamId: id }).catch(e => { setErr(formatError(e)); return null; });
     if (res) setChannels(res.channels || []);
   }
 
@@ -68,8 +77,25 @@ export default function ProjectSettingsPage({ projectKey }) {
 
   const chipClass = active => `text-xs px-2 py-1 rounded border ${active ? 'border-jira-blue bg-jira-blue text-white' : 'border-jira-border text-jira-grey hover:border-jira-blue'}`;
 
+  // Small ANY/ALL switch for multi-valued filters (labels, components) — an issue can carry
+  // several of these at once, so unlike issue type/status/priority, "match" needs a strategy.
+  function matchToggle(value, setValue) {
+    return (
+      <div className="flex text-[10px] font-semibold rounded overflow-hidden border border-jira-border">
+        {['any', 'all'].map(opt => (
+          <button
+            key={opt} type="button" onClick={() => setValue(opt)}
+            className={`px-2 py-0.5 uppercase ${value === opt ? 'bg-jira-blue text-white' : 'bg-white text-jira-grey'}`}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   async function save() {
-    setErr(''); setMsg('');
+    setErr(''); setSaving(true);
     try {
       const team    = teams.find(t => t.id === teamId);
       const channel = channels.find(c => c.id === channelId);
@@ -78,21 +104,31 @@ export default function ProjectSettingsPage({ projectKey }) {
         teamName: team?.displayName || config?.teamName || '',
         channelName: channel?.displayName || config?.channelName || '',
         webhookUrl,
-        filters: { issueTypes: issueTypeFilter, statuses: statusFilter, priorities: priorityFilter },
+        filters: {
+          issueTypes: issueTypeFilter, statuses: statusFilter, priorities: priorityFilter,
+          labels: labelFilterText.split(',').map(s => s.trim()).filter(Boolean), labelMatch,
+          components: componentFilter, componentMatch,
+        },
         fields,
       });
-      setMsg('Project settings saved. This project now overrides the global channel.');
-    } catch (e) { setErr(e.message || 'Save failed.'); }
+      showToast('Project settings saved. This project now overrides the global channel.');
+    } catch (e) { showToast(formatError(e, 'Save failed.'), 'error'); }
+    finally { setSaving(false); }
   }
 
   async function clearAndUseGlobal() {
-    await invoke('clearProjectConfig', { projectKey }).catch(() => {});
-    setConfig(null); setTeamId(''); setChannelId(''); setWebhookUrl('');
-    setIssueTypeFilter([]); setStatusFilter([]); setPriorityFilter([]);
-    setMsg('Reverted — this project now uses the global default channel.');
+    setErr(''); setSaving(true);
+    try {
+      await invoke('clearProjectConfig', { projectKey });
+      setConfig(null); setTeamId(''); setChannelId(''); setWebhookUrl('');
+      setIssueTypeFilter([]); setStatusFilter([]); setPriorityFilter([]);
+      setLabelFilterText(''); setLabelMatch('any'); setComponentFilter([]); setComponentMatch('any');
+      showToast('Reverted — this project now uses the global default channel.');
+    } catch (e) { showToast(formatError(e, 'Failed to revert.'), 'error'); }
+    finally { setSaving(false); }
   }
 
-  if (loading) return <div className="p-4 text-jira-grey text-sm">Loading…</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="max-w-xl mx-auto p-6 font-sans">
@@ -102,10 +138,9 @@ export default function ProjectSettingsPage({ projectKey }) {
       />
 
       {err && <div className="alert-err">{err}</div>}
-      {msg && <div className="alert-ok">{msg}</div>}
 
       <SectionCard title="Destination channel">
-        {!teams.length && <button className="btn-blue w-full mb-1" onClick={loadTeams}>Load Teams</button>}
+        {!teams.length && <Button className="w-full mb-1" onClick={loadTeams}>Load Teams</Button>}
         {!!teams.length && (
           <>
             <label className="label">Team</label>
@@ -144,11 +179,36 @@ export default function ProjectSettingsPage({ projectKey }) {
         </div>
 
         <label className="label">Priorities</label>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 mb-3">
           {meta.priorities.map(p => (
             <button key={p} type="button" onClick={() => toggleInList(priorityFilter, setPriorityFilter, p)} className={chipClass(priorityFilter.includes(p))}>{p}</button>
           ))}
         </div>
+
+        <div className="flex items-center justify-between mt-3">
+          <label className="label mt-0">Labels</label>
+          {matchToggle(labelMatch, setLabelMatch)}
+        </div>
+        <input
+          className="form-input text-xs mb-3"
+          value={labelFilterText}
+          onChange={e => setLabelFilterText(e.target.value)}
+          placeholder="e.g. urgent, customer-facing (comma-separated)"
+        />
+
+        {!!meta.components.length && (
+          <>
+            <div className="flex items-center justify-between">
+              <label className="label mt-0">Components</label>
+              {matchToggle(componentMatch, setComponentMatch)}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {meta.components.map(c => (
+                <button key={c} type="button" onClick={() => toggleInList(componentFilter, setComponentFilter, c)} className={chipClass(componentFilter.includes(c))}>{c}</button>
+              ))}
+            </div>
+          </>
+        )}
       </SectionCard>
 
       <SectionCard title="Fields shown in notification">
@@ -163,8 +223,8 @@ export default function ProjectSettingsPage({ projectKey }) {
       </SectionCard>
 
       <div className="flex gap-2">
-        <button className="btn-blue flex-1" onClick={save}>Save Project Settings</button>
-        <button className="btn-red" onClick={clearAndUseGlobal}>Use Global Default</button>
+        <Button className="flex-1" onClick={save} loading={saving}>Save Project Settings</Button>
+        <Button variant="danger" onClick={clearAndUseGlobal} loading={saving}>Use Global Default</Button>
       </div>
     </div>
   );

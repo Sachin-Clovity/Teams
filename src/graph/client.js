@@ -1,9 +1,10 @@
 import { getAppToken } from './auth.js';
 
 // All Graph calls use the app-level token from client credentials — no user OAuth needed.
+// tenantId (optional): scopes the call to a specific company's tenant — see getAppToken().
 
-export async function graphGet(path) {
-  const token = await getAppToken();
+export async function graphGet(path, tenantId) {
+  const token = await getAppToken(tenantId);
   const { fetch } = await import('@forge/api');
   const res = await fetch(`https://graph.microsoft.com${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -12,8 +13,8 @@ export async function graphGet(path) {
   return res.json();
 }
 
-export async function graphPost(path, bodyObj) {
-  const token = await getAppToken();
+export async function graphPost(path, bodyObj, tenantId) {
+  const token = await getAppToken(tenantId);
   const { fetch } = await import('@forge/api');
   const res = await fetch(`https://graph.microsoft.com${path}`, {
     method: 'POST',

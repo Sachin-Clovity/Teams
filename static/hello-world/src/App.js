@@ -4,6 +4,7 @@ import AdminPage from './components/AdminPage';
 import ProjectSettingsPage from './components/ProjectSettingsPage';
 import PersonalSettingsPage from './components/PersonalSettingsPage';
 import IssuePanel from './components/IssuePanel';
+import { ToastProvider, PageSkeleton } from './components/common';
 
 // ── Root — routes to the right screen based on which Forge module rendered it ──
 export default function App() {
@@ -21,9 +22,12 @@ export default function App() {
       .catch(() => setModuleKey('admin'));
   }, []);
 
-  if (!moduleKey) return <div className="p-4 text-jira-grey text-sm">Loading…</div>;
-  if (moduleKey === 'teams-issue-context') return <IssuePanel issueKey={issueKey} />;
-  if (moduleKey === 'teams-project-settings') return <ProjectSettingsPage projectKey={projectKey} />;
-  if (moduleKey === 'teams-personal-settings') return <PersonalSettingsPage />;
-  return <AdminPage />;
+  return (
+    <ToastProvider>
+      {!moduleKey ? <PageSkeleton /> : moduleKey === 'teams-issue-context' ? <IssuePanel issueKey={issueKey} />
+        : moduleKey === 'teams-project-settings' ? <ProjectSettingsPage projectKey={projectKey} />
+        : moduleKey === 'teams-personal-settings' ? <PersonalSettingsPage />
+        : <AdminPage />}
+    </ToastProvider>
+  );
 }

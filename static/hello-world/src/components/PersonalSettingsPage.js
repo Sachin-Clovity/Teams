@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { invoke } from '@forge/bridge';
-import { PageHeader, SectionCard } from './common';
+import { PageHeader, SectionCard, Button, useToast, PageSkeleton, formatError } from './common';
 
 const DEFAULT_SETTINGS = {
   dmOnAssigned: true,
@@ -22,7 +22,8 @@ const TOGGLES = [
 export default function PersonalSettingsPage() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading,  setLoading]  = useState(true);
-  const [saved,    setSaved]    = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const showToast = useToast();
 
   useEffect(() => {
     invoke('getPersonalConfig')
@@ -31,12 +32,13 @@ export default function PersonalSettingsPage() {
   }, []);
 
   async function save() {
-    await invoke('savePersonalConfig', { settings }).catch(() => {});
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    try { await invoke('savePersonalConfig', { settings }); showToast('Preferences saved.'); }
+    catch (e) { showToast(formatError(e, 'Save failed.'), 'error'); }
+    finally { setSaving(false); }
   }
 
-  if (loading) return <div className="p-4 text-jira-grey text-sm">Loading…</div>;
+  if (loading) return <PageSkeleton />;
 
   return (
     <div className="max-w-xl mx-auto p-6 font-sans">
@@ -57,10 +59,7 @@ export default function PersonalSettingsPage() {
         </div>
       </SectionCard>
 
-      <div className="flex items-center gap-3">
-        <button className="btn-blue" onClick={save}>Save</button>
-        {saved && <span className="text-jira-green text-xs font-semibold">Saved!</span>}
-      </div>
+      <Button onClick={save} loading={saving}>Save</Button>
     </div>
   );
 }

@@ -121,10 +121,11 @@ export async function getValidAtlassianAuth(teamsUserId) {
 // and returns null if not connected, otherwise returns the auth record.
 export async function requireConnection(body, teamsUserId) {
   const { sendBotReply } = await import('../graph/botReply.js');
+  const { buildConnectCard } = await import('../bot/cards.js');
   const auth = await getValidAtlassianAuth(teamsUserId);
   if (auth?.cloudId) return auth;
   const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
-  await sendBotReply(body, [], `🔗 Connect your Jira account first so this action runs as **you**, not the bot:\n\n[Connect Jira Account](${url})`);
+  await sendBotReply(body, [buildConnectCard(url, 'Connect your Jira account', 'Connect first so this action runs as you, not the bot.')], undefined);
   return null;
 }
 

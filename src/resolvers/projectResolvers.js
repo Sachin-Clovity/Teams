@@ -1,5 +1,6 @@
 import api, { route } from '@forge/api';
 import { getProjectConfig, saveProjectConfig, clearProjectConfig } from '../storage/kvsStore.js';
+import { isProjectAdmin } from '../jira/utils.js';
 
 export function registerProjectResolvers(resolver) {
   resolver.define('getProjectConfig', async ({ payload }) => {
@@ -9,11 +10,13 @@ export function registerProjectResolvers(resolver) {
 
   resolver.define('saveProjectConfig', async ({ payload }) => {
     if (!payload.projectKey) throw new Error('projectKey is required');
+    if (!await isProjectAdmin(payload.projectKey)) throw new Error('Only administrators of this project can change its Teams settings.');
     await saveProjectConfig(payload.projectKey, payload);
     return { success: true };
   });
 
   resolver.define('clearProjectConfig', async ({ payload }) => {
+    if (!await isProjectAdmin(payload.projectKey)) throw new Error('Only administrators of this project can change its Teams settings.');
     await clearProjectConfig(payload.projectKey);
     return { success: true };
   });
@@ -34,6 +37,12 @@ export function registerProjectResolvers(resolver) {
     const priorityData = await priorityRes.json();
     const priorities = (priorityData || []).map(p => p.name);
 
-    return { issueTypes, statuses: [...statusSet], priorities };
+    // Components are project-specific (unlike statuses/priorities) — some projects have none,
+    // in which case the filter UI just shows an empty, harmless list.
+    const componentRes  = await api.asApp().requestJira(route`/rest/api/3/project/${projectKey}/components`);
+    const componentData = await componentRes.json();
+    const components = (componentData || []).map(c => c.name);
+
+    return { issueTypes, statuses: [...statusSet], priorities, components };
   });
 }

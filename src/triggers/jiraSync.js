@@ -1,4 +1,4 @@
-import { getGlobalConfig, getNotificationSettings, getProjectConfig, getPersonalConfig, getIssueNotifySub } from '../storage/kvsStore.js';
+import { getGlobalConfig, getNotificationSettings, getProjectConfig, getPersonalConfig, getIssueNotifySub, getMsTenantId } from '../storage/kvsStore.js';
 import { DEFAULT_FIELDS, FIELD_DEFS } from '../config/constants.js';
 import { getJiraUserEmail, getIssueWatchers, extractMentionedAccountIds } from '../jira/utils.js';
 import { sendPersonalDM } from '../graph/chat.js';
@@ -40,7 +40,9 @@ async function postChannelNotification(config, eventType, issue, fields) {
 
 async function dmAccountId(accountId, html) {
   const email = await getJiraUserEmail(accountId);
-  if (email) await sendPersonalDM(email, html);
+  if (!email) return;
+  const tenantId = await getMsTenantId();
+  await sendPersonalDM(email, html, tenantId);
 }
 
 // Personal DMs — assigned / status-change / reported / mentioned / watching, each gated by
@@ -137,11 +139,26 @@ export async function jiraSync(event) {
     console.log('[jiraSync] no channel configured for', projectKey || 'this site', '— skipping channel post');
   } else {
     const filters = projectConfig?.filters;
+    // Single-valued fields (an issue has exactly one type/status/priority): passes if the
+    // issue's value is in the selected list, or the list is empty (no filter set).
     const passes  = (list, value) => !list?.length || list.includes(value);
+    // Multi-valued fields (an issue can have several labels/components): "any" passes if at
+    // least one selected value is present on the issue; "all" requires every selected value
+    // to be present.
+    const passesMulti = (list, match, issueValues) => {
+      if (!list?.length) return true;
+      return match === 'all'
+        ? list.every(v => issueValues.includes(v))
+        : list.some(v => issueValues.includes(v));
+    };
+    const issueLabels     = fields.labels || [];
+    const issueComponents = (fields.components || []).map(c => c.name);
     const filteredOut = filters && (
       !passes(filters.issueTypes, fields.issuetype?.name || 'Issue') ||
       !passes(filters.statuses,   fields.status?.name   || 'Unknown') ||
-      !passes(filters.priorities, fields.priority?.name || 'None')
+      !passes(filters.priorities, fields.priority?.name || 'None') ||
+      !passesMulti(filters.labels,     filters.labelMatch,     issueLabels) ||
+      !passesMulti(filters.components, filters.componentMatch, issueComponents)
     );
     if (filteredOut && !subForcesNotify) {
       console.log('[jiraSync] filtered out by project notification filters');

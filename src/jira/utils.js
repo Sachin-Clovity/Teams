@@ -43,3 +43,21 @@ export async function getLatestComment(issueKey) {
   const data = await res.json();
   return data.comments?.[0] || null;
 }
+
+// Forge's invoke() only proves WHO is calling (a real logged-in user on this site) — it does
+// not check WHAT they're allowed to do. jira:globalPage and jira:projectSettingsPage are just
+// reachable by any site user who knows the URL/resolver name, so writes that change site-wide
+// or project-wide behavior (channel routing, webhooks) need an explicit permission check here,
+// using the caller's own Jira session via api.asUser() — never api.asApp(), which would report
+// the app's own (much broader) permissions instead of the actual caller's.
+export async function isSiteAdmin() {
+  const res  = await api.asUser().requestJira(route`/rest/api/3/mypermissions?permissions=ADMINISTER`);
+  const data = await res.json();
+  return !!data.permissions?.ADMINISTER?.havePermission;
+}
+
+export async function isProjectAdmin(projectKey) {
+  const res  = await api.asUser().requestJira(route`/rest/api/3/mypermissions?projectKey=${projectKey}&permissions=ADMINISTER_PROJECTS`);
+  const data = await res.json();
+  return !!data.permissions?.ADMINISTER_PROJECTS?.havePermission;
+}

@@ -1,6 +1,6 @@
 import api, { route } from '@forge/api';
 import { sendBotReply } from '../graph/botReply.js';
-import { issueCard, helpText } from './cards.js';
+import { issueCard, helpText, buildConnectCard } from './cards.js';
 import { parseTimeToSeconds } from '../jira/utils.js';
 import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch, requireConnection } from '../jira/atlassianAuth.js';
 import { clearAtlassianAuth } from '../storage/kvsStore.js';
@@ -32,15 +32,28 @@ async function dispatchCommand(body, text, teamsUserId) {
   if (/^connect$/i.test(text)) {
     console.log('[botCommand] connect — teamsUserId used for lookup/save:', teamsUserId);
     const existing = await getValidAtlassianAuth(teamsUserId);
-    if (existing?.cloudId) return sendBotReply(body, [], `✅ Already connected to **${existing.siteName}**. Type \`disconnect\` to unlink.`);
+    if (existing?.cloudId) return sendBotReply(body, [], `✅ Already connected to **${existing.siteName}** (${existing.siteUrl}). Type \`disconnect\` to unlink.`);
     const url = buildAuthorizationUrl(ATLASSIAN_REDIRECT_URI, teamsUserId);
-    return sendBotReply(body, [], `[Connect Jira Account](${url})`);
+    return sendBotReply(body, [buildConnectCard(url)], undefined);
   }
 
   // DISCONNECT: unlink this Teams user's Jira account
   if (/^disconnect$/i.test(text)) {
     await clearAtlassianAuth(teamsUserId);
     return sendBotReply(body, [], `Disconnected. Type \`connect\` to link a Jira account again.`);
+  }
+
+  // CONSENT: hand a Teams/Azure admin the one-time admin-consent link their organization needs
+  // to approve before anyone there can use this bot — only relevant once installed outside
+  // Clovity's own tenant, but harmless (and useful) to have ready regardless.
+  if (/^consent$/i.test(text)) {
+    const url = `https://login.microsoftonline.com/organizations/adminconsent?client_id=${process.env.MS_CLIENT_ID}`;
+    return sendBotReply(body, [buildConnectCard(
+      url,
+      'Admin approval needed',
+      'An admin for your organization needs to approve this app once before everyone here can use it.',
+      '✅ Approve for organization'
+    )], undefined);
   }
 
   // BUG / TASK / STORY / EPIC — typed issue creation

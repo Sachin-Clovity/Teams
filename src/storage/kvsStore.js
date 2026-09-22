@@ -5,6 +5,7 @@ const GLOBAL_CONFIG_KEY         = 'teams-channel-config';
 const NOTIFICATION_SETTINGS_KEY = 'notification-settings';
 const PROJECT_CONFIG_INDEX_KEY  = 'project-config-index';
 const BOT_DEBUG_LOG_KEY         = 'bot-debug-log';
+const MS_TENANT_ID_KEY          = 'ms-tenant-id';
 
 const projectConfigKey  = projectKey => `project-config:${projectKey}`;
 const personalConfigKey = accountId => `personal-config:${accountId}`;
@@ -54,6 +55,13 @@ export async function saveProjectConfig(projectKey, { teamId, channelId, teamNam
       issueTypes: filters?.issueTypes || [],
       statuses:   filters?.statuses   || [],
       priorities: filters?.priorities || [],
+      // Labels/components are multi-valued on an issue (unlike type/status/priority, which are
+      // single-valued), so unlike those, "match" needs a strategy: does the issue need ALL the
+      // selected values present, or is ANY one of them enough?
+      labels:       filters?.labels       || [],
+      labelMatch:     filters?.labelMatch     === 'all' ? 'all' : 'any',
+      components:   filters?.components   || [],
+      componentMatch: filters?.componentMatch === 'all' ? 'all' : 'any',
     },
     fields: fields?.length ? fields : DEFAULT_FIELDS,
   });
@@ -106,6 +114,18 @@ export async function getIssueNotifySub(issueKey) {
 
 export async function saveIssueNotifySub(issueKey, sub) {
   await kvs.set(issueNotifyKey(issueKey), sub);
+}
+
+// ── Microsoft tenant this installation talks to — learned from the first Teams activity we
+// ever receive (every incoming bot activity carries conversation.tenantId), so a second company
+// installing this app gets their own Graph calls scoped to their own tenant automatically,
+// instead of the single tenant baked into the MS_TENANT_ID environment variable. ──
+export async function getMsTenantId() {
+  return kvs.get(MS_TENANT_ID_KEY);
+}
+
+export async function saveMsTenantId(tenantId) {
+  await kvs.set(MS_TENANT_ID_KEY, tenantId);
 }
 
 // ── Bot debug log — visible via admin UI (works on AGC where logs are restricted) ──
