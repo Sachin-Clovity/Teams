@@ -37,6 +37,19 @@ export function extractMentionedAccountIds(node, out = []) {
   return out;
 }
 
+// Builds a comment body for POST /issue/{key}/comment. The `sd.public.comment` property only
+// means anything on a Jira Service Management request (it marks the comment internal-only,
+// hidden from the customer on the portal) — Jira ignores it on a plain Software/Business
+// issue, so it's always safe to include. Without it, a comment posted through the bot or issue
+// panel defaults to customer-visible on JSM, which risks leaking an internal note to the
+// reporter; defaulting every comment we create to internal is the safer failure mode.
+export function commentBody(text) {
+  return {
+    body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+    properties: [{ key: 'sd.public.comment', value: { internal: true } }],
+  };
+}
+
 // Most recent comment on an issue, or null if it has none
 export async function getLatestComment(issueKey) {
   const res  = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey}/comment?maxResults=1&orderBy=-created`);

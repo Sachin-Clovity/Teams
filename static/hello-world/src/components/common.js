@@ -1,43 +1,33 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { useCallback, useRef } from 'react';
+import { showFlag } from '@forge/bridge';
 
 // ── Shared page chrome — used by all four Jira-embedded pages so they read as one
 // consistent app instead of four independently-built forms. ─────────────────────
 
 // ── Toasts — transient action feedback (save succeeded, test failed) that clears itself,
 // as opposed to alert-err/alert-ok banners which are for a persistent page-level problem
-// (e.g. "failed to load") that should stay visible until the user does something about it. ──
-const ToastContext = createContext(() => {});
-
-export function ToastProvider({ children }) {
-  const [toasts, setToasts] = useState([]);
-
-  const dismiss = useCallback(id => {
-    setToasts(prev => prev.filter(t => t.id !== id));
-  }, []);
-
-  const showToast = useCallback((message, type = 'success') => {
-    const id = `${Date.now()}-${Math.random()}`;
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => dismiss(id), 3500);
-  }, [dismiss]);
-
-  return (
-    <ToastContext.Provider value={showToast}>
-      {children}
-      <div className="toast-container">
-        {toasts.map(t => (
-          <div key={t.id} className={`toast toast-${t.type}`} onClick={() => dismiss(t.id)} role="status">
-            <span aria-hidden="true">{t.type === 'error' ? '⚠' : '✓'}</span>
-            <span>{t.message}</span>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
-  );
-}
-
+// (e.g. "failed to load") that should stay visible until the user does something about it.
+//
+// Uses Jira's own native flag (@forge/bridge showFlag) instead of a custom-rendered banner.
+// A custom `position: fixed` element only stays fixed relative to OUR iframe's own box — and
+// Jira sizes that iframe to fit its full content rather than scrolling it internally, so as
+// the outer Jira page scrolls, a "fixed" toast scrolls away with everything else and often
+// ends up invisible. Jira's native flag renders in Jira's own chrome, outside our iframe
+// entirely, so it always stays visible regardless of where the page is scrolled. ──
 export function useToast() {
-  return useContext(ToastContext);
+  const counter = useRef(0);
+  return useCallback((message, type = 'success') => {
+    showFlag({
+      id: `teams-connector-${Date.now()}-${counter.current++}`,
+      // The actual message goes in the title, not description — the description line has
+      // shown up collapsed/hidden behind an expand control in testing, which meant the one
+      // piece of information anyone actually needs (why did this fail) was invisible unless
+      // that control was found and clicked. Putting it in the title guarantees it's read.
+      title: message,
+      appearance: type === 'error' ? 'error' : 'success',
+      isAutoDismiss: type !== 'error',
+    });
+  }, []);
 }
 
 // Small inline spinner for buttons/loading states — pure Tailwind, no extra CSS needed.

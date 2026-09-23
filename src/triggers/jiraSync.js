@@ -2,19 +2,34 @@ import { getGlobalConfig, getNotificationSettings, getProjectConfig, getPersonal
 import { DEFAULT_FIELDS, FIELD_DEFS } from '../config/constants.js';
 import { getJiraUserEmail, getIssueWatchers, extractMentionedAccountIds } from '../jira/utils.js';
 import { sendPersonalDM } from '../graph/chat.js';
+import { fetchWithRetry } from '../utils/http.js';
+
+// Current Forge event identifiers (ARI-style) — the older dot-notation names
+// (jira:issueCreated/Updated/Deleted) are what this trigger used to be registered with, and
+// silently never fired a single time under that registration; these are what manifest.yml's
+// trigger.events must also list for the platform to actually deliver anything here.
+const CREATED   = 'avi:jira:created:issue';
+const UPDATED   = 'avi:jira:updated:issue';
+const DELETED   = 'avi:jira:deleted:issue';
+// A distinct event from UPDATED — adding/editing a comment does not fire avi:jira:updated:issue
+// on its own, so without registering this separately, comments never reached this trigger at
+// all (independent of the "Comment Added" toggle, which had nothing to gate — it was checked
+// nowhere in this file until now).
+const COMMENTED = 'avi:jira:commented:issue';
 
 // Channel notification — respects per-config field customization.
 async function postChannelNotification(config, eventType, issue, fields) {
   const actionMap = {
-    'jira:issueCreated': '🆕 Issue Created',
-    'jira:issueUpdated': '✏️ Issue Updated',
-    'jira:issueDeleted': '🗑️ Issue Deleted',
+    [CREATED]:   '🆕 Issue Created',
+    [UPDATED]:   '✏️ Issue Updated',
+    [DELETED]:   '🗑️ Issue Deleted',
+    [COMMENTED]: '💬 Comment Added',
   };
   const action   = actionMap[eventType] || '🔔 Issue Event';
   const issueKey = issue.key || 'Unknown';
   const summary  = fields.summary || '(no summary)';
   const jiraUrl  = `${process.env.JIRA_BASE_URL}/browse/${issueKey}`;
-  const color    = eventType === 'jira:issueCreated' ? '0078D4' : eventType === 'jira:issueDeleted' ? 'D83B01' : 'FFB900';
+  const color    = eventType === CREATED ? '0078D4' : eventType === DELETED ? 'D83B01' : 'FFB900';
 
   const fieldKeys = config.fields?.length ? config.fields : DEFAULT_FIELDS;
   const factLine  = fieldKeys.filter(k => FIELD_DEFS[k]).map(k => `${FIELD_DEFS[k].label}: ${FIELD_DEFS[k].get(fields)}`).join(' | ');
@@ -30,12 +45,37 @@ async function postChannelNotification(config, eventType, issue, fields) {
   };
 
   const { fetch } = await import('@forge/api');
-  const res = await fetch(config.webhookUrl, {
+  const res = await fetchWithRetry(fetch, config.webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
-  });
+  }, `webhook post for ${issueKey}`);
   console.log('[jiraSync] webhook post status:', res.status, await res.text());
+}
+
+// True if the issue has a Security Level set — those exist specifically to restrict who can
+// see the issue beyond normal project permissions, so broadcasting it to an entire Teams
+// channel (whose membership Jira has no visibility into) could show restricted data to people
+// who could never have opened the issue in Jira itself. This only gates the CHANNEL post —
+// personal DMs already go only to the assignee/reporter/watchers, who by definition already
+// have access to the issue, so they're not the same risk.
+//
+// A deleted issue can't be re-fetched, so a delete event trusts whatever security field the
+// trigger payload already carried. For created/updated events this re-fetches fields=security
+// directly rather than trusting the trigger payload, since Forge doesn't guarantee every field
+// is present on every event and getting this wrong means a real data leak, not a UX bug.
+async function isSecurityRestricted(eventType, issue, fields) {
+  if (eventType === DELETED) return !!fields.security;
+  try {
+    const { default: api, route } = await import('@forge/api');
+    const res = await api.asApp().requestJira(route`/rest/api/3/issue/${issue.key}?fields=security`);
+    if (!res.ok) return !!fields.security;
+    const data = await res.json();
+    return !!data.fields?.security;
+  } catch (e) {
+    console.log('[jiraSync] security-level check failed, treating as restricted to be safe:', e.message);
+    return true;
+  }
 }
 
 async function dmAccountId(accountId, html) {
@@ -57,7 +97,7 @@ async function maybeSendPersonalNotifications(eventType, issue, fields, event) {
   const changelogItems  = event.changelog?.items || [];
   const assigneeChanged = changelogItems.some(i => i.field === 'assignee');
   const statusChanged   = changelogItems.some(i => i.field === 'status');
-  const isNewAssignment = eventType === 'jira:issueCreated' || assigneeChanged;
+  const isNewAssignment = eventType === CREATED || assigneeChanged;
 
   const assignee = fields.assignee;
   const reporter = fields.reporter;
@@ -108,19 +148,20 @@ async function maybeSendPersonalNotifications(eventType, issue, fields, event) {
   }
 }
 
-// jira:issueCreated / jira:issueUpdated / jira:issueDeleted trigger.
+// avi:jira:created:issue / avi:jira:updated:issue / avi:jira:deleted:issue / avi:jira:commented:issue trigger.
 export async function jiraSync(event) {
   console.log('[jiraSync] event received:', event.eventType);
 
-  const eventType  = event.eventType || 'jira:issueUpdated';
+  const eventType  = event.eventType || UPDATED;
   const issue      = event.issue || {};
   const fields     = issue.fields || {};
   const projectKey = fields.project?.key;
 
   const notifSettings = await getNotificationSettings();
-  if (eventType === 'jira:issueCreated' && !notifSettings.created) { console.log('[jiraSync] created notifications disabled'); return; }
-  if (eventType === 'jira:issueUpdated' && !notifSettings.updated) { console.log('[jiraSync] updated notifications disabled'); return; }
-  if (eventType === 'jira:issueDeleted' && !notifSettings.deleted) { console.log('[jiraSync] deleted notifications disabled'); return; }
+  if (eventType === CREATED   && !notifSettings.created)   { console.log('[jiraSync] created notifications disabled');   return; }
+  if (eventType === UPDATED   && !notifSettings.updated)   { console.log('[jiraSync] updated notifications disabled');   return; }
+  if (eventType === DELETED   && !notifSettings.deleted)   { console.log('[jiraSync] deleted notifications disabled');   return; }
+  if (eventType === COMMENTED && !notifSettings.commented) { console.log('[jiraSync] commented notifications disabled'); return; }
 
   const projectConfig = projectKey ? await getProjectConfig(projectKey) : null;
   const globalConfig  = await getGlobalConfig();
@@ -129,14 +170,18 @@ export async function jiraSync(event) {
   // Per-issue subscription (the "Notify" card button) can force a channel post through even
   // when project-level filters would otherwise exclude it — the user explicitly asked for this issue.
   const issueSub = await getIssueNotifySub(issue.key);
-  const commentAdded = !!event.comment;
+  const commentAdded = !!event.comment || eventType === COMMENTED;
   const subForcesNotify = !!issueSub && (
-    (issueSub.notifyOnUpdate && eventType === 'jira:issueUpdated') ||
+    (issueSub.notifyOnUpdate && eventType === UPDATED) ||
     (issueSub.notifyOnComment && commentAdded)
   );
 
   if (!routeConfig?.webhookUrl) {
     console.log('[jiraSync] no channel configured for', projectKey || 'this site', '— skipping channel post');
+  } else if (await isSecurityRestricted(eventType, issue, fields)) {
+    // A hard boundary — overrides even an explicit per-issue "Notify" subscription, since
+    // that subscription reflects "notify about this issue," not "ignore its access controls."
+    console.log('[jiraSync] issue has a security level set — skipping channel notification to avoid exposing restricted data');
   } else {
     const filters = projectConfig?.filters;
     // Single-valued fields (an issue has exactly one type/status/priority): passes if the

@@ -2,7 +2,7 @@ import api, { route } from '@forge/api';
 import { getGlobalConfig, getMsTenantId } from '../storage/kvsStore.js';
 import { getAadUserId, postChatMessage } from '../graph/chat.js';
 import { graphPost } from '../graph/client.js';
-import { parseTimeToSeconds, extractTextFromADF } from '../jira/utils.js';
+import { parseTimeToSeconds, extractTextFromADF, commentBody } from '../jira/utils.js';
 
 export function registerIssuePanelResolvers(resolver) {
   resolver.define('getIssueDetails', async ({ payload }) => {
@@ -50,9 +50,7 @@ export function registerIssuePanelResolvers(resolver) {
     const res = await api.asUser().requestJira(route`/rest/api/3/issue/${payload.issueKey}/comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: payload.commentText }] }] },
-      }),
+      body: JSON.stringify(commentBody(payload.commentText)),
     });
     const data = await res.json();
     return { success: !!data.id };

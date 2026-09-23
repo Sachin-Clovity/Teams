@@ -2,7 +2,7 @@ import api, { route } from '@forge/api';
 import { setBotDebugLog } from '../storage/kvsStore.js';
 import { issueCard, buildCreateIssueSiteCard, buildCreateIssueProjectCard, buildCreateIssueTypeCard, buildCreateIssueDetailsCard, buildCommentCard, buildLogTimeCard, buildConnectCard } from './cards.js';
 import { sendBotReply } from '../graph/botReply.js';
-import { parseTimeToSeconds } from '../jira/utils.js';
+import { parseTimeToSeconds, commentBody } from '../jira/utils.js';
 import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch } from '../jira/atlassianAuth.js';
 
 // Teams sends composeExtension/queryLink when a Jira URL is pasted — link unfurling.
@@ -159,9 +159,7 @@ export async function handleSubmitAction(body) {
     const commentRes = await api.asApp().requestJira(route`/rest/api/3/issue/${issueKey.trim().toUpperCase()}/comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: commentText.trim() }] }] },
-      }),
+      body: JSON.stringify(commentBody(commentText.trim())),
     });
     const commented = await commentRes.json();
     if (commented.id) {

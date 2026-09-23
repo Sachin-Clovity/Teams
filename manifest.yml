@@ -32,9 +32,10 @@ modules:
     - key: jira-issue-trigger
       function: jira-sync
       events:
-        - jira:issueCreated
-        - jira:issueUpdated
-        - jira:issueDeleted
+        - avi:jira:created:issue
+        - avi:jira:updated:issue
+        - avi:jira:deleted:issue
+        - avi:jira:commented:issue
 
   scheduledTrigger:
     - key: daily-digest-trigger

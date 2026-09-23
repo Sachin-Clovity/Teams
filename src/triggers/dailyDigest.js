@@ -1,5 +1,6 @@
 import api, { route } from '@forge/api';
 import { getProjectConfigIndex, getProjectConfig, getGlobalConfig } from '../storage/kvsStore.js';
+import { fetchWithRetry } from '../utils/http.js';
 
 // Scheduled trigger — daily summary of open issues, per configured project
 // (or site-wide if no project-level configs exist).
@@ -27,7 +28,7 @@ export async function dailyDigest() {
       if (!total) { console.log('[dailyDigest] no open issues for', projectKey || 'site'); continue; }
       const list = issues.map(i => `• **${i.key}** — ${i.fields?.summary || ''} (${i.fields?.status?.name || 'Unknown'})`).join('\n');
       const payload = { text: `📊 **Daily Digest${projectKey ? ` — ${projectKey}` : ''}**: ${total} open issue(s)\n\n${list}` };
-      const res2 = await fetch(config.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const res2 = await fetchWithRetry(fetch, config.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, `daily digest for ${projectKey || 'site'}`);
       console.log('[dailyDigest] posted for', projectKey || 'site', '| status:', res2.status);
     } catch (e) {
       console.log('[dailyDigest] error for', projectKey || 'site', ':', e.message);

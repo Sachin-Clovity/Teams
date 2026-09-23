@@ -1,7 +1,7 @@
 import api, { route } from '@forge/api';
 import { sendBotReply } from '../graph/botReply.js';
 import { issueCard, helpText, buildConnectCard } from './cards.js';
-import { parseTimeToSeconds } from '../jira/utils.js';
+import { parseTimeToSeconds, commentBody } from '../jira/utils.js';
 import { buildAuthorizationUrl, ATLASSIAN_REDIRECT_URI, getValidAtlassianAuth, atlassianFetch, requireConnection } from '../jira/atlassianAuth.js';
 import { clearAtlassianAuth } from '../storage/kvsStore.js';
 
@@ -186,9 +186,7 @@ async function dispatchCommand(body, text, teamsUserId) {
     const commentRes = await atlassianFetch(teamsUserId, `/rest/api/3/issue/${issueKey}/comment`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        body: { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: commentTxt }] }] },
-      }),
+      body: JSON.stringify(commentBody(commentTxt)),
     });
     const commented = await commentRes.json();
     if (commented.id) {
