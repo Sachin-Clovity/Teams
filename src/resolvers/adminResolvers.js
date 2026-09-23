@@ -3,7 +3,7 @@ import { isSiteAdmin } from '../jira/utils.js';
 import {
   getGlobalConfig, saveGlobalConfig, clearGlobalConfig,
   getNotificationSettings, saveNotificationSettings,
-  getBotDebugLog, getMsTenantId,
+  getBotDebugLog, getSyncDebugLog, getMsTenantId,
 } from '../storage/kvsStore.js';
 
 export function registerAdminResolvers(resolver) {
@@ -94,6 +94,11 @@ export function registerAdminResolvers(resolver) {
   resolver.define('getBotDebug', async () => {
     const debug = await getBotDebugLog();
     return { debug: debug || 'No bot activity yet' };
+  });
+
+  resolver.define('getSyncDebug', async () => {
+    const debug = await getSyncDebugLog();
+    return { debug: debug || 'No Jira trigger activity yet' };
   });
 
   resolver.define('getAuthStatus', async () => {

@@ -1,7 +1,7 @@
 import { setBotDebugLog, getMsTenantId, saveMsTenantId } from '../storage/kvsStore.js';
-import { handleQueryLink, handleFetchTask, handleSubmitAction, handleQuery } from '../bot/composeExtension.js';
-import { handleBotMessage } from '../bot/commands.js';
-import { handleTaskFetch, handleTaskSubmit } from '../bot/cardActions.js';
+import { handleQueryLink, handleFetchTask, handleSubmitAction, handleQuery } from '../bot/composeExtension/index.js';
+import { handleBotMessage } from '../bot/commands/index.js';
+import { handleTaskFetch, handleTaskSubmit } from '../bot/cardActions/index.js';
 import { verifyBotFrameworkRequest } from '../graph/botAuth.js';
 
 // Jira link previews, message actions, compose extension search, and text commands — the Teams bot endpoint.

@@ -5,6 +5,7 @@ const GLOBAL_CONFIG_KEY         = 'teams-channel-config';
 const NOTIFICATION_SETTINGS_KEY = 'notification-settings';
 const PROJECT_CONFIG_INDEX_KEY  = 'project-config-index';
 const BOT_DEBUG_LOG_KEY         = 'bot-debug-log';
+const SYNC_DEBUG_LOG_KEY        = 'sync-debug-log';
 const MS_TENANT_ID_KEY          = 'ms-tenant-id';
 
 const projectConfigKey  = projectKey => `project-config:${projectKey}`;
@@ -135,4 +136,16 @@ export async function getBotDebugLog() {
 
 export async function setBotDebugLog(data) {
   await kvs.set(BOT_DEBUG_LOG_KEY, data);
+}
+
+// ── Jira trigger (jiraSync) debug log — same idea as the bot debug log above, but for the
+// jira-issue-trigger function: on AGC sites where `forge logs` CLI access is restricted, this
+// is the only way to confirm the trigger fired at all and see why a notification was or wasn't
+// sent (event name mismatch, security level block, filtered out, webhook failure, etc). ──
+export async function getSyncDebugLog() {
+  return kvs.get(SYNC_DEBUG_LOG_KEY);
+}
+
+export async function setSyncDebugLog(data) {
+  await kvs.set(SYNC_DEBUG_LOG_KEY, data);
 }

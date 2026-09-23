@@ -1,4 +1,4 @@
-import { getGlobalConfig, getNotificationSettings, getProjectConfig, getPersonalConfig, getIssueNotifySub, getMsTenantId } from '../storage/kvsStore.js';
+import { getGlobalConfig, getNotificationSettings, getProjectConfig, getPersonalConfig, getIssueNotifySub, getMsTenantId, setSyncDebugLog } from '../storage/kvsStore.js';
 import { DEFAULT_FIELDS, FIELD_DEFS } from '../config/constants.js';
 import { getJiraUserEmail, getIssueWatchers, extractMentionedAccountIds } from '../jira/utils.js';
 import { sendPersonalDM } from '../graph/chat.js';
@@ -157,60 +157,84 @@ export async function jiraSync(event) {
   const fields     = issue.fields || {};
   const projectKey = fields.project?.key;
 
-  const notifSettings = await getNotificationSettings();
-  if (eventType === CREATED   && !notifSettings.created)   { console.log('[jiraSync] created notifications disabled');   return; }
-  if (eventType === UPDATED   && !notifSettings.updated)   { console.log('[jiraSync] updated notifications disabled');   return; }
-  if (eventType === DELETED   && !notifSettings.deleted)   { console.log('[jiraSync] deleted notifications disabled');   return; }
-  if (eventType === COMMENTED && !notifSettings.commented) { console.log('[jiraSync] commented notifications disabled'); return; }
+  // Mirrors the bot handler's debug log (setBotDebugLog) — written to storage, not just
+  // console.log, so admins on AGC sites (where `forge logs` CLI access is restricted) can still
+  // confirm via the admin UI's "Sync Console" button that this trigger fired at all, and why a
+  // notification was or wasn't sent. Always written in the `finally` block below, regardless of
+  // which branch this run takes or whether it throws.
+  const debug = {
+    receivedAt: new Date().toISOString(),
+    eventType,
+    issueKey: issue.key || 'Unknown',
+    projectKey: projectKey || null,
+    result: 'in progress',
+  };
 
-  const projectConfig = projectKey ? await getProjectConfig(projectKey) : null;
-  const globalConfig  = await getGlobalConfig();
-  const routeConfig   = projectConfig?.webhookUrl ? projectConfig : globalConfig;
+  try {
+    const notifSettings = await getNotificationSettings();
+    if (eventType === CREATED   && !notifSettings.created)   { console.log('[jiraSync] created notifications disabled');   debug.result = 'skipped: created notifications disabled';   return; }
+    if (eventType === UPDATED   && !notifSettings.updated)   { console.log('[jiraSync] updated notifications disabled');   debug.result = 'skipped: updated notifications disabled';   return; }
+    if (eventType === DELETED   && !notifSettings.deleted)   { console.log('[jiraSync] deleted notifications disabled');   debug.result = 'skipped: deleted notifications disabled';   return; }
+    if (eventType === COMMENTED && !notifSettings.commented) { console.log('[jiraSync] commented notifications disabled'); debug.result = 'skipped: commented notifications disabled'; return; }
 
-  // Per-issue subscription (the "Notify" card button) can force a channel post through even
-  // when project-level filters would otherwise exclude it — the user explicitly asked for this issue.
-  const issueSub = await getIssueNotifySub(issue.key);
-  const commentAdded = !!event.comment || eventType === COMMENTED;
-  const subForcesNotify = !!issueSub && (
-    (issueSub.notifyOnUpdate && eventType === UPDATED) ||
-    (issueSub.notifyOnComment && commentAdded)
-  );
+    const projectConfig = projectKey ? await getProjectConfig(projectKey) : null;
+    const globalConfig  = await getGlobalConfig();
+    const routeConfig   = projectConfig?.webhookUrl ? projectConfig : globalConfig;
 
-  if (!routeConfig?.webhookUrl) {
-    console.log('[jiraSync] no channel configured for', projectKey || 'this site', '— skipping channel post');
-  } else if (await isSecurityRestricted(eventType, issue, fields)) {
-    // A hard boundary — overrides even an explicit per-issue "Notify" subscription, since
-    // that subscription reflects "notify about this issue," not "ignore its access controls."
-    console.log('[jiraSync] issue has a security level set — skipping channel notification to avoid exposing restricted data');
-  } else {
-    const filters = projectConfig?.filters;
-    // Single-valued fields (an issue has exactly one type/status/priority): passes if the
-    // issue's value is in the selected list, or the list is empty (no filter set).
-    const passes  = (list, value) => !list?.length || list.includes(value);
-    // Multi-valued fields (an issue can have several labels/components): "any" passes if at
-    // least one selected value is present on the issue; "all" requires every selected value
-    // to be present.
-    const passesMulti = (list, match, issueValues) => {
-      if (!list?.length) return true;
-      return match === 'all'
-        ? list.every(v => issueValues.includes(v))
-        : list.some(v => issueValues.includes(v));
-    };
-    const issueLabels     = fields.labels || [];
-    const issueComponents = (fields.components || []).map(c => c.name);
-    const filteredOut = filters && (
-      !passes(filters.issueTypes, fields.issuetype?.name || 'Issue') ||
-      !passes(filters.statuses,   fields.status?.name   || 'Unknown') ||
-      !passes(filters.priorities, fields.priority?.name || 'None') ||
-      !passesMulti(filters.labels,     filters.labelMatch,     issueLabels) ||
-      !passesMulti(filters.components, filters.componentMatch, issueComponents)
+    // Per-issue subscription (the "Notify" card button) can force a channel post through even
+    // when project-level filters would otherwise exclude it — the user explicitly asked for this issue.
+    const issueSub = await getIssueNotifySub(issue.key);
+    const commentAdded = !!event.comment || eventType === COMMENTED;
+    const subForcesNotify = !!issueSub && (
+      (issueSub.notifyOnUpdate && eventType === UPDATED) ||
+      (issueSub.notifyOnComment && commentAdded)
     );
-    if (filteredOut && !subForcesNotify) {
-      console.log('[jiraSync] filtered out by project notification filters');
-    } else {
-      await postChannelNotification(routeConfig, eventType, issue, fields);
-    }
-  }
 
-  await maybeSendPersonalNotifications(eventType, issue, fields, event);
+    if (!routeConfig?.webhookUrl) {
+      console.log('[jiraSync] no channel configured for', projectKey || 'this site', '— skipping channel post');
+      debug.result = `skipped: no channel configured for ${projectKey || 'this site'}`;
+    } else if (await isSecurityRestricted(eventType, issue, fields)) {
+      // A hard boundary — overrides even an explicit per-issue "Notify" subscription, since
+      // that subscription reflects "notify about this issue," not "ignore its access controls."
+      console.log('[jiraSync] issue has a security level set — skipping channel notification to avoid exposing restricted data');
+      debug.result = 'skipped: issue has a security level set';
+    } else {
+      const filters = projectConfig?.filters;
+      // Single-valued fields (an issue has exactly one type/status/priority): passes if the
+      // issue's value is in the selected list, or the list is empty (no filter set).
+      const passes  = (list, value) => !list?.length || list.includes(value);
+      // Multi-valued fields (an issue can have several labels/components): "any" passes if at
+      // least one selected value is present on the issue; "all" requires every selected value
+      // to be present.
+      const passesMulti = (list, match, issueValues) => {
+        if (!list?.length) return true;
+        return match === 'all'
+          ? list.every(v => issueValues.includes(v))
+          : list.some(v => issueValues.includes(v));
+      };
+      const issueLabels     = fields.labels || [];
+      const issueComponents = (fields.components || []).map(c => c.name);
+      const filteredOut = filters && (
+        !passes(filters.issueTypes, fields.issuetype?.name || 'Issue') ||
+        !passes(filters.statuses,   fields.status?.name   || 'Unknown') ||
+        !passes(filters.priorities, fields.priority?.name || 'None') ||
+        !passesMulti(filters.labels,     filters.labelMatch,     issueLabels) ||
+        !passesMulti(filters.components, filters.componentMatch, issueComponents)
+      );
+      if (filteredOut && !subForcesNotify) {
+        console.log('[jiraSync] filtered out by project notification filters');
+        debug.result = 'skipped: filtered out by project notification filters';
+      } else {
+        await postChannelNotification(routeConfig, eventType, issue, fields);
+        debug.result = 'channel notification sent';
+      }
+    }
+
+    await maybeSendPersonalNotifications(eventType, issue, fields, event);
+  } catch (e) {
+    debug.result = `error: ${e.message}`;
+    throw e;
+  } finally {
+    await setSyncDebugLog(debug);
+  }
 }
